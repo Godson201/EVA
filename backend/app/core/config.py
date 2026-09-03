@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     legacy_mysql_user: str = "root"
     legacy_mysql_password: str = ""
     legacy_mysql_database: str = "audio_to_text"
+    llm_provider: str = "anthropic"
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-5"
+    llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":

@@ -30,3 +30,7 @@ Configuration keys and safe placeholders are documented in `.env.example`.
 ## PostgreSQL V2 schema
 
 Phase 4 database setup and the non-destructive legacy migration workflow are documented in `docs/database-migration.md`.
+
+## Core chat API
+
+Phase 5 conversation endpoints, provider configuration, and streaming behavior are documented in `docs/core-chat.md`.
