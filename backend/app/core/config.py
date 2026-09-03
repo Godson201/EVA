@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     )
     secret_key: str = "eva-development-key-change-in-production"
     legacy_app_enabled: bool = False
+    database_url: str = "postgresql+asyncpg://eva:eva@localhost:5432/eva"
+    database_echo: bool = False
+    embedding_dimensions: int = Field(default=768, ge=1, le=16000)
+    legacy_mysql_host: str = "localhost"
+    legacy_mysql_port: int = 3306
+    legacy_mysql_user: str = "root"
+    legacy_mysql_password: str = ""
+    legacy_mysql_database: str = "audio_to_text"
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":
@@ -43,6 +51,8 @@ class Settings(BaseSettings):
                 raise ValueError("debug must be disabled outside development and test")
             if not self.cors_origins:
                 raise ValueError("at least one CORS origin is required")
+            if not self.database_url.startswith("postgresql+"):
+                raise ValueError("EVA_DATABASE_URL must use an async PostgreSQL driver")
         return self
 
 

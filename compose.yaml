@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: eva
+      POSTGRES_USER: eva
+      POSTGRES_PASSWORD: eva
+    ports:
+      - "5432:5432"
+    volumes:
+      - eva_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eva -d eva"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  eva_postgres_data:

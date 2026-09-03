@@ -26,3 +26,7 @@ Versioned health endpoints:
 Set `EVA_LEGACY_APP_ENABLED=True` to mount the original application under the V2 process. This compatibility mode loads the existing AI models and is intended only for migration testing until services are extracted in later phases.
 
 Configuration keys and safe placeholders are documented in `.env.example`.
+
+## PostgreSQL V2 schema
+
+Phase 4 database setup and the non-destructive legacy migration workflow are documented in `docs/database-migration.md`.
