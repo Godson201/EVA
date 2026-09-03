@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.api.v1.endpoints.translations import compatibility_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
 from app.core.lifecycle import lifespan
@@ -67,6 +68,7 @@ def create_app(
     )
     install_exception_handlers(application)
     application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)
+    application.include_router(compatibility_router)
 
     legacy_enabled = resolved_settings.legacy_app_enabled if include_legacy is None else include_legacy
     if legacy_enabled:

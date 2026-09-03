@@ -34,3 +34,7 @@ Phase 4 database setup and the non-destructive legacy migration workflow are doc
 ## Core chat API
 
 Phase 5 conversation endpoints, provider configuration, and streaming behavior are documented in `docs/core-chat.md`.
+
+## Translation API
+
+Phase 6 language detection, modes, NLLB fallback behavior, and API contracts are documented in `docs/translation.md`.
