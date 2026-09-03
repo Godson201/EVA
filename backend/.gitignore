@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.env
+uploads/
+tts_outputs/
+tts_documents/
+tts_voices/
+tts_pronunciations/
+ffmpeg_shared/
+xtts_v2_model/

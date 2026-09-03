@@ -1,0 +1,43 @@
+# Local tooling
+.agents/
+.claude/
+.vscode/
+.idea/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# JavaScript
+node_modules/
+build/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime and user-generated data
+backend/uploads/
+backend/temp/
+backend/stored_audio/
+backend/tts_outputs/
+backend/tts_documents/
+backend/tts_voices/
+backend/tts_pronunciations/
+
+# Downloaded binaries and machine-learning model weights
+backend/ffmpeg_shared/
+backend/xtts_v2_model/
+kinyarwanda_fast_model/
+
+# OS files
+.DS_Store
+Thumbs.db
