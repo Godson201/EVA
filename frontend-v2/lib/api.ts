@@ -1,4 +1,4 @@
-import type { ApiError, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentItem, Session, SpeechJob, StudyArtifact, VoiceConsent, VoiceProfile } from "@/types/api";
+import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentItem, Session, SpeechJob, StudyArtifact, VoiceConsent, VoiceProfile } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -50,4 +50,6 @@ export const api = {
     if (!response.ok) throw new EvaApiError(response.status, "voice_export_failed", "Voice sample could not be exported");
     return response.blob();
   },
+  callTicket: (source_language: string, target_language: string, token: string) => request<CallTicket>("/api/v1/calls/tickets", { method: "POST", body: JSON.stringify({ source_language, target_language }) }, token),
+  callSessions: (token: string) => request<CallSession[]>("/api/v1/calls/sessions", {}, token),
 };

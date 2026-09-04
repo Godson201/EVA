@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.api.v1.endpoints.translations import compatibility_router
+from app.api.v1.endpoints.calls import registry as call_registry
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
 from app.core.lifecycle import lifespan
@@ -57,6 +58,7 @@ def create_app(
     )
     application.state.settings = resolved_settings
     application.state.readiness_checks = readiness_checks or {}
+    application.state.call_registry = call_registry
 
     application.add_middleware(RequestContextMiddleware)
     application.add_middleware(

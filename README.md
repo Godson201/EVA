@@ -62,3 +62,7 @@ Phase 11 structured summaries, notes, explanations, quizzes, flashcards, vocabul
 ## Consent-based voice profiles
 
 Phase 12 voice disclosures, audio quality gates, encrypted reference storage, revocation, export, permanent deletion, and the working Voice UI are documented in `docs/voice-profiles.md`.
+
+## Call Assistant foundation
+
+Phase 13 authenticated WebSocket sessions, bounded audio buffering, real-time event contracts, service reuse, persisted wrap-ups, and the internal simulator are documented in `docs/call-center.md`.

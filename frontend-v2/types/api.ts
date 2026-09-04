@@ -12,3 +12,6 @@ export type StudyArtifact = { id: string; artifact_type: string; title: string; 
 export type SpeechJob = { id: string; status: string; error_message: string | null; result: { attachment_id?: string } };
 export type VoiceConsent = { version: string; title: string; risks: string[]; required_assertions: string[] };
 export type VoiceProfile = { id: string; name: string; language: string | null; status: string; consent_version: string | null; purpose: string | null; consented_at: string | null; revoked_at: string | null; quality_metadata: Record<string, string | number | boolean>; created_at: string };
+export type CallTicket = { ticket: string; expires_in: number; websocket_path: string };
+export type CallEvent = { type: string; session_id?: string; text?: string; language?: string; cue?: string; summary?: string; action_items?: string[]; message?: string; code?: string; sequence?: number; buffered_bytes?: number; bytes?: number };
+export type CallSession = { id: string; status: string; source_language: string | null; target_language: string | null; transcript: Record<string, unknown>[]; summary: string | null; action_items: string[]; sentiment_cues: Record<string, unknown>[] };

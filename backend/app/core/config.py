@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     voice_sample_min_seconds: float = Field(default=5.0, ge=1, le=30)
     voice_sample_max_seconds: float = Field(default=60.0, ge=10, le=300)
     voice_consent_version: str = "2026-09-v1"
+    call_ticket_seconds: int = Field(default=60, ge=10, le=300)
+    call_audio_queue_chunks: int = Field(default=32, ge=4, le=256)
+    call_max_buffer_bytes: int = Field(default=5 * 1024 * 1024, ge=65536, le=50 * 1024 * 1024)
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":

@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
         },
     )
     yield
+    call_registry = getattr(app.state, "call_registry", None)
+    if call_registry is not None:
+        await call_registry.close_all()
     logger.info(
         "application_stopped",
         extra={"event_data": {"service": settings.app_name}},
