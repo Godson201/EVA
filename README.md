@@ -42,3 +42,7 @@ Phase 6 language detection, modes, NLLB fallback behavior, and API contracts are
 ## Document intelligence
 
 Phase 7 document processing, storage, worker, semantic search, and cited Q&A are documented in `docs/document-rag.md`.
+
+## Speech processing
+
+Phase 8 audio validation, queued Whisper transcription, unified TTS fallbacks, protected audio storage, and API contracts are documented in `docs/speech.md`.

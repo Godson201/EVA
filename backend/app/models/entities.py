@@ -202,6 +202,8 @@ class ProcessingJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "processing_jobs"
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    attachment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("attachments.id", ondelete="CASCADE"), index=True)
+    transcription_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("transcriptions.id", ondelete="CASCADE"), index=True)
     task_name: Mapped[str] = mapped_column(String(100), index=True)
     celery_task_id: Mapped[str | None] = mapped_column(String(255), unique=True)
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)

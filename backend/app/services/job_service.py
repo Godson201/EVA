@@ -7,11 +7,11 @@ from app.core.config import Settings
 
 
 def create_celery_app(settings: Settings) -> Celery:
-    app = Celery("eva", broker=settings.redis_url, backend=settings.redis_url, include=["app.tasks.documents"])
+    app = Celery("eva", broker=settings.redis_url, backend=settings.redis_url, include=["app.tasks.documents", "app.tasks.speech"])
     app.conf.update(
         task_serializer="json", result_serializer="json", accept_content=["json"],
         task_track_started=True, task_acks_late=True,
-        task_routes={"documents.process": {"queue": "documents"}},
+        task_routes={"documents.process": {"queue": "documents"}, "speech.transcribe": {"queue": "speech"}, "speech.synthesize": {"queue": "speech"}},
     )
     return app
 

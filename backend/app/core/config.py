@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_region: str = "auto"
+    max_audio_bytes: int = Field(default=100 * 1024 * 1024, ge=1024)
+    whisper_english_model: str = "openai/whisper-small"
+    whisper_kinyarwanda_model: str = "pacomesimon/whisper-small-rw"
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":
