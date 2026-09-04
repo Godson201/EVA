@@ -150,8 +150,11 @@ class VoiceProfile(UUIDPrimaryKeyMixin, LegacyIdentityMixin, TimestampMixin, Bas
     language: Mapped[str | None] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(30), default="consent_pending", index=True)
     consent_version: Mapped[str | None] = mapped_column(String(30))
+    consent_assertion: Mapped[str | None] = mapped_column(Text)
+    purpose: Mapped[str | None] = mapped_column(String(255))
     consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     quality_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
 

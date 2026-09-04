@@ -58,3 +58,7 @@ Phase 10 introduces the parallel `frontend-v2` Next.js application, central chat
 ## Study mode
 
 Phase 11 structured summaries, notes, explanations, quizzes, flashcards, vocabulary, document citations, and read-aloud integration are documented in `docs/study-mode.md`.
+
+## Consent-based voice profiles
+
+Phase 12 voice disclosures, audio quality gates, encrypted reference storage, revocation, export, permanent deletion, and the working Voice UI are documented in `docs/voice-profiles.md`.

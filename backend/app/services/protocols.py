@@ -26,6 +26,10 @@ class StorageService(Protocol):
 
     async def delete(self, key: str) -> None: ...
 
+    async def put_private(self, key: str, content: bytes, content_type: str) -> str: ...
+
+    async def get_private(self, key: str) -> bytes: ...
+
 
 @runtime_checkable
 class TranscriptionService(Protocol):

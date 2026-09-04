@@ -1,4 +1,4 @@
-import type { ApiError, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentItem, Session, SpeechJob, StudyArtifact } from "@/types/api";
+import type { ApiError, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentItem, Session, SpeechJob, StudyArtifact, VoiceConsent, VoiceProfile } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -34,6 +34,20 @@ export const api = {
   speechAudio: async (id: string, token: string) => {
     const response = await fetch(`${API_URL}/api/v1/speech/attachments/${id}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!response.ok) throw new EvaApiError(response.status, "audio_unavailable", "Generated audio is unavailable");
+    return response.blob();
+  },
+  voiceConsent: () => request<VoiceConsent>("/api/v1/voices/consent"),
+  voiceProfiles: (token: string) => request<{ items: VoiceProfile[]; total: number }>("/api/v1/voices", {}, token),
+  createVoice: async (form: FormData, token: string) => {
+    const response = await fetch(`${API_URL}/api/v1/voices`, { method: "POST", credentials: "include", headers: { Authorization: `Bearer ${token}` }, body: form });
+    if (!response.ok) { const payload = await response.json().catch(() => ({})) as ApiError; throw new EvaApiError(response.status, payload.error?.code || "voice_error", payload.error?.message || "Voice profile could not be created"); }
+    return response.json() as Promise<VoiceProfile>;
+  },
+  revokeVoice: (id: string, token: string) => request<VoiceProfile>(`/api/v1/voices/${id}/revoke`, { method: "POST" }, token),
+  deleteVoice: (id: string, token: string) => request<void>(`/api/v1/voices/${id}`, { method: "DELETE" }, token),
+  exportVoice: async (id: string, token: string) => {
+    const response = await fetch(`${API_URL}/api/v1/voices/${id}/export`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) throw new EvaApiError(response.status, "voice_export_failed", "Voice sample could not be exported");
     return response.blob();
   },
 };

@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     memory_max_retention_days: int = Field(default=365, ge=1, le=3650)
     access_token_minutes: int = Field(default=15, ge=1, le=1440)
     refresh_token_days: int = Field(default=30, ge=1, le=365)
+    storage_encryption_key: str = ""
+    voice_sample_min_seconds: float = Field(default=5.0, ge=1, le=30)
+    voice_sample_max_seconds: float = Field(default=60.0, ge=10, le=300)
+    voice_consent_version: str = "2026-09-v1"
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":
