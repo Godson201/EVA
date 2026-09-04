@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     max_audio_bytes: int = Field(default=100 * 1024 * 1024, ge=1024)
     whisper_english_model: str = "openai/whisper-small"
     whisper_kinyarwanda_model: str = "pacomesimon/whisper-small-rw"
+    memory_max_items_per_user: int = Field(default=100, ge=1, le=1000)
+    memory_retrieval_limit: int = Field(default=5, ge=1, le=20)
+    memory_max_content_chars: int = Field(default=1000, ge=50, le=10000)
+    memory_max_retention_days: int = Field(default=365, ge=1, le=3650)
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":

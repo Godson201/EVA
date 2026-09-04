@@ -46,3 +46,7 @@ Phase 7 document processing, storage, worker, semantic search, and cited Q&A are
 ## Speech processing
 
 Phase 8 audio validation, queued Whisper transcription, unified TTS fallbacks, protected audio storage, and API contracts are documented in `docs/speech.md`.
+
+## Personal memory
+
+Phase 9 explicit-consent memory states, pgvector retrieval, retention controls, sensitive-data exclusions, and deletion behavior are documented in `docs/memory.md`.
