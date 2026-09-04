@@ -11,6 +11,14 @@ EVA_ANTHROPIC_MODEL=claude-sonnet-5
 EVA_LLM_TIMEOUT_SECONDS=60
 ```
 
+For Groq development access, use:
+
+```env
+EVA_LLM_PROVIDER=groq
+EVA_GROQ_API_KEY=your-key
+EVA_GROQ_MODEL=openai/gpt-oss-20b
+```
+
 Provider selection is isolated behind the `LLMService` contract. Tests use a deterministic provider and never call an external API.
 
 ## Endpoints

@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     llm_provider: str = "anthropic"
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5"
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-20b"
     llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
     translation_model: str = "facebook/nllb-200-distilled-600M"
     translation_max_input_chars: int = Field(default=20_000, ge=100, le=100_000)

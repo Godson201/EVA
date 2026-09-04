@@ -55,6 +55,52 @@ class AnthropicLLMService:
             raise AppError("llm_provider_error", "The conversational AI provider is unavailable", status_code=502) from exc
 
 
+class GroqLLMService:
+    endpoint = "https://api.groq.com/openai/v1/chat/completions"
+
+    def __init__(self, settings: Settings):
+        self.api_key = settings.groq_api_key
+        self.model = settings.groq_model
+        self.timeout = settings.llm_timeout_seconds
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+
+    def _payload(self, messages: list[dict[str, str]], stream: bool = False) -> dict[str, Any]:
+        return {"model": self.model, "messages": messages, "max_completion_tokens": 2048, "stream": stream}
+
+    def _ensure_configured(self) -> None:
+        if not self.api_key:
+            raise AppError("llm_not_configured", "The Groq API key is not configured", status_code=503)
+
+    async def complete(self, messages: list[dict[str, str]], **options: Any) -> str:
+        self._ensure_configured()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(self.endpoint, headers=self._headers, json=self._payload(messages))
+                response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+        except (httpx.HTTPError, KeyError, IndexError, TypeError) as exc:
+            raise AppError("llm_provider_error", "Groq is currently unavailable or has reached its free-tier limit", status_code=502) from exc
+
+    async def stream(self, messages: list[dict[str, str]], **options: Any) -> AsyncIterator[str]:
+        self._ensure_configured()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream("POST", self.endpoint, headers=self._headers, json=self._payload(messages, True)) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: ") or line == "data: [DONE]":
+                            continue
+                        event = json.loads(line[6:])
+                        content = event.get("choices", [{}])[0].get("delta", {}).get("content")
+                        if content:
+                            yield content
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+            raise AppError("llm_provider_error", "Groq is currently unavailable or has reached its free-tier limit", status_code=502) from exc
+
+
 class DeterministicLLMService:
     """Predictable provider for tests; never selected by production settings."""
     model = "deterministic-test"
@@ -71,4 +117,6 @@ class DeterministicLLMService:
 def build_llm_service(settings: Settings):
     if settings.llm_provider == "anthropic":
         return AnthropicLLMService(settings)
+    if settings.llm_provider == "groq":
+        return GroqLLMService(settings)
     raise ValueError(f"Unsupported EVA_LLM_PROVIDER: {settings.llm_provider}")
