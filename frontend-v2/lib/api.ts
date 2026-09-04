@@ -21,6 +21,9 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string |
 
 export const api = {
   login: (identifier: string, password: string) => request<Session>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ identifier, password }) }),
+  register: (payload: { username: string; email: string; password: string; full_name?: string }) => request<Session>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(payload) }),
+  forgotPassword: (identifier: string) => request<{ message: string; reset_token?: string | null }>("/api/v1/auth/forgot-password", { method: "POST", body: JSON.stringify({ identifier }) }),
+  resetPassword: (token: string, newPassword: string) => request<{ message: string }>("/api/v1/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password: newPassword }) }),
   refresh: () => request<Session>("/api/v1/auth/refresh", { method: "POST" }),
   logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
   conversations: (token: string) => request<ConversationList>("/api/v1/conversations", {}, token),

@@ -11,6 +11,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    if op.get_bind().dialect.has_table(op.get_bind(), "study_artifacts"):
+        return
     op.create_table(
         "study_artifacts",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),

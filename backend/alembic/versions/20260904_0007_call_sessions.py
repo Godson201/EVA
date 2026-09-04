@@ -11,6 +11,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    if op.get_bind().dialect.has_table(op.get_bind(), "call_sessions"):
+        return
     op.create_table("call_sessions",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
         sa.Column("user_id", UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),

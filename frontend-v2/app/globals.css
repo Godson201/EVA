@@ -28,6 +28,9 @@ a { color:inherit; text-decoration:none; }
 .login-card p { color:var(--muted); margin:0; line-height:1.5; }
 .login-card label { display:grid; gap:8px; font-size:12px; font-weight:700; }
 .login-card .form-error { color:#a53222; background:#ffebe7; padding:11px 13px; border-radius:9px; font-size:13px; }
+.login-card .form-notice { color:#245e48; background:#eaf4eb; padding:11px 13px; border-radius:9px; font-size:13px; }
+.auth-links { display:flex; align-items:center; justify-content:space-between; gap:14px; color:var(--muted); font-size:12px; }
+.auth-links button { padding:0; border:0; background:transparent; color:var(--green); font:inherit; font-weight:800; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
 .legacy-note { text-align:center; font-size:12px; }.legacy-note a { text-decoration:underline; text-underline-offset:3px; }
 
 .app-frame { min-height:100vh; display:grid; grid-template-columns:260px minmax(0,1fr); }

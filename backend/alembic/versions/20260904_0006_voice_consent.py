@@ -2,6 +2,7 @@
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision = "20260904_0006"
 down_revision = "20260904_0005"
@@ -10,9 +11,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("voice_profiles", sa.Column("consent_assertion", sa.Text(), nullable=True))
-    op.add_column("voice_profiles", sa.Column("purpose", sa.String(255), nullable=True))
-    op.add_column("voice_profiles", sa.Column("deletion_requested_at", sa.DateTime(timezone=True), nullable=True))
+    columns = {column["name"] for column in inspect(op.get_bind()).get_columns("voice_profiles")}
+    for name, column in (("consent_assertion", sa.Column("consent_assertion", sa.Text(), nullable=True)), ("purpose", sa.Column("purpose", sa.String(255), nullable=True)), ("deletion_requested_at", sa.Column("deletion_requested_at", sa.DateTime(timezone=True), nullable=True))):
+        if name not in columns:
+            op.add_column("voice_profiles", column)
 
 
 def downgrade() -> None:
