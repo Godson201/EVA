@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { ArrowUp, Bot, FilePlus2, Mic, Plus, Sparkles, Volume2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 import type { Message } from "@/types/api";
@@ -35,5 +37,24 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
 
 function MessageBubble({ message }: { message: Message }) {
   const assistant = message.role === "assistant";
-  return <article className={`message ${assistant ? "assistant" : "user"}`}>{assistant && <div className="message-icon"><Sparkles size={16}/></div>}<div className="message-body"><span>{assistant ? "EVA" : "YOU"}</span><p>{message.content}</p>{assistant && <button className="listen" aria-label="Read response aloud"><Volume2 size={14}/> Listen</button>}</div></article>;
+  const [speaking, setSpeaking] = useState(false);
+  function listen() {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    if (speaking) { setSpeaking(false); return; }
+    const cleanText = message.content.replace(/[#*_`>|~-]/g, " ").replace(/\s+/g, " ").trim();
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = message.language === "rw" ? "rw-RW" : "en-US";
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true); window.speechSynthesis.speak(utterance);
+  }
+  return <article className={`message ${assistant ? "assistant" : "user"}`}>
+    {assistant && <div className="message-icon"><Sparkles size={16}/></div>}
+    <div className="message-body">
+      <span>{assistant ? "EVA" : "YOU"}</span>
+      {assistant ? <div className="message-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div> : <p>{message.content}</p>}
+      {assistant && <button type="button" className={`listen ${speaking ? "speaking" : ""}`} onClick={listen} aria-label={speaking ? "Stop reading response" : "Read response aloud"}><Volume2 size={14}/> {speaking ? "Stop" : "Listen"}</button>}
+    </div>
+  </article>;
 }
