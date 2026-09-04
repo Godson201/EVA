@@ -573,6 +573,48 @@ kinyarwanda_corrector = KinyarwandaTextCorrector()
 english_corrector = EnglishTextCorrector()
 
 
+def groq_correct_kinyarwanda_transcript(text: str) -> str:
+    """Conservatively repair Kinyarwanda ASR errors using the configured Groq model."""
+    api_key = os.getenv("EVA_GROQ_API_KEY", "").strip()
+    if not api_key or not text.strip():
+        return text
+    try:
+        response = httpx.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": os.getenv("EVA_GROQ_MODEL", "openai/gpt-oss-20b"),
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Proofread Kinyarwanda speech-to-text. Repair only obvious phonetic errors, "
+                            "split or joined words, punctuation, and capitalization. Do not translate, "
+                            "summarize, answer, explain, or add content. Return only the corrected transcript."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "Example input: Mura honneza ama kuru turashi iman.\n"
+                            "Example output: Muraho neza! Amakuru? Turashima Imana.\n\n"
+                            f"Input: {text}"
+                        ),
+                    },
+                ],
+                "max_completion_tokens": 1200,
+                "temperature": 0,
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        corrected = response.json()["choices"][0]["message"]["content"].strip().strip('"')
+        return corrected if corrected and len(corrected) <= max(200, len(text) * 2) else text
+    except Exception as exc:
+        print(f"Kinyarwanda transcript correction unavailable: {exc}")
+        return text
+
+
 # ============================================
 # NEW: LLM-BASED REWRITE / SUMMARIZATION (optional)
 # ============================================
@@ -935,6 +977,7 @@ def transcribe_audio(file_path: str, language_code: str) -> dict:
         full_text = english_corrector.correct_text(full_text)
     elif full_text:
         full_text = kinyarwanda_corrector.correct_text(full_text)
+        full_text = groq_correct_kinyarwanda_transcript(full_text)
 
     processing_time = (datetime.now() - start_time).total_seconds()
     word_count = len(full_text.split()) if full_text else 0

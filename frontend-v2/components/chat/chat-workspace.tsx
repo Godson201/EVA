@@ -22,6 +22,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   const recorder = useRef<MediaRecorder | null>(null); const recordingChunks = useRef<Blob[]>([]);
   const activeSendId = useRef<string | null>(null);
   const [attachmentMenu, setAttachmentMenu] = useState(false); const [recording, setRecording] = useState(false); const [uploadStatus, setUploadStatus] = useState("");
+  const [audioLanguage, setAudioLanguage] = useState<"rw" | "en">("rw");
   const [pendingUser, setPendingUser] = useState(""); const [streamedAnswer, setStreamedAnswer] = useState("");
   const detail = useQuery({ queryKey: ["conversation", conversationId], queryFn: () => api.conversation(conversationId!, token), enabled: !!conversationId });
   const send = useMutation({
@@ -54,7 +55,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   });
   const transcribeAudio = useMutation({
     mutationFn: async (file: File) => {
-      const uploaded = await api.uploadAudio(file, token); setUploadStatus(`Transcribing ${file.name}…`);
+      const uploaded = await api.uploadAudio(file, token, audioLanguage); setUploadStatus(`Transcribing ${file.name} as ${audioLanguage === "rw" ? "Kinyarwanda" : "English"}…`);
       for (let attempt = 0; attempt < 120; attempt++) {
         await delay(1000); const job = await api.speechJob(uploaded.job_id, token);
         if (job.status === "completed") return api.transcription(uploaded.transcription.id, token);
@@ -91,6 +92,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
     <form className="composer-wrap" onSubmit={submit}>
       {uploadStatus && <div className="upload-status">{(uploadDocument.isPending || transcribeAudio.isPending) && <LoaderCircle className="spin"/>}<span>{uploadStatus}</span><button type="button" onClick={() => setUploadStatus("")} aria-label="Dismiss upload status">×</button></div>}
       <div className="composer"><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="Message EVA in English or Kinyarwanda…" rows={1} aria-label="Message EVA"/><div className="composer-actions"><div className="media-actions">
+        <div className="audio-language" role="group" aria-label="Recording language"><button type="button" className={audioLanguage === "rw" ? "active" : ""} onClick={() => setAudioLanguage("rw")} title="Transcribe in Kinyarwanda">RW</button><button type="button" className={audioLanguage === "en" ? "active" : ""} onClick={() => setAudioLanguage("en")} title="Transcribe in English">EN</button></div>
         <div className="attach-control"><Button type="button" variant="ghost" size="icon" aria-label="Upload a document or audio file" title="Upload file" onClick={() => setAttachmentMenu((open) => !open)}><FilePlus2 size={19}/></Button>{attachmentMenu && <div className="attachment-menu"><button type="button" onClick={() => { setAttachmentMenu(false); documentInput.current?.click(); }}><FileText/> Upload document</button><button type="button" onClick={() => { setAttachmentMenu(false); audioInput.current?.click(); }}><FileAudio/> Upload audio</button></div>}</div>
         <Button type="button" variant="ghost" size="icon" className={recording ? "recording-button" : ""} aria-label={recording ? "Stop recording" : "Record audio"} title={recording ? "Stop recording" : "Record audio"} onClick={toggleRecording}>{recording ? <Square size={16}/> : <Mic size={19}/>}</Button>
       </div><Button size="icon" aria-label="Send message" disabled={!draft.trim() || send.isPending}><ArrowUp size={19}/></Button></div></div>

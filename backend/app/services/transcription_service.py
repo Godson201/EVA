@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from app.core.config import Settings
 from app.services.audio_preprocessing_service import AudioPreprocessingService
 from app.services.language_detection_service import LanguageDetectionService
+from app.services.llm_service import build_llm_service
 
 
 @dataclass
@@ -79,12 +80,45 @@ class WhisperTranscriptionService:
             corrected = corrected[0].upper() + corrected[1:]
         return TranscriptionResult(raw, corrected, language, len(audio) / rate, timestamps, model_name)
 
+    async def _correct_kinyarwanda(self, result: TranscriptionResult) -> TranscriptionResult:
+        if not result.corrected_text or not self.settings.groq_api_key:
+            return result
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You proofread Kinyarwanda speech-to-text. Repair only clear phonetic ASR errors, "
+                    "incorrectly split or joined words, punctuation, and capitalization. Preserve every "
+                    "idea and the speaker's wording. Never translate, summarize, explain, answer the "
+                    "speaker, or add facts. Return only the corrected Kinyarwanda transcript."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Example: Mura honneza ama kuru turashi iman.\n"
+                    "Corrected: Muraho neza! Amakuru? Turashima Imana.\n\n"
+                    f"Transcript to correct:\n{result.corrected_text}"
+                ),
+            },
+        ]
+        try:
+            corrected = (await build_llm_service(self.settings).complete(messages)).strip()
+            if corrected and len(corrected) <= max(200, len(result.corrected_text) * 2):
+                result.corrected_text = corrected.strip('"')
+        except Exception:
+            # Transcription must still succeed when the optional correction provider is unavailable.
+            pass
+        return result
+
     async def transcribe(self, content: bytes, suffix: str, language: str):
         audio, rate = await self.audio.load(content, suffix)
         if language == "auto":
             english = await asyncio.to_thread(self._transcribe_sync, audio, rate, "en")
             detected, confidence = LanguageDetectionService().detect(english.raw_text)
             if detected == "rw" and confidence >= 0.5:
-                return await asyncio.to_thread(self._transcribe_sync, audio, rate, "rw")
+                result = await asyncio.to_thread(self._transcribe_sync, audio, rate, "rw")
+                return await self._correct_kinyarwanda(result)
             return english
-        return await asyncio.to_thread(self._transcribe_sync, audio, rate, language)
+        result = await asyncio.to_thread(self._transcribe_sync, audio, rate, language)
+        return await self._correct_kinyarwanda(result) if language == "rw" else result
