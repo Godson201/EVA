@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversation, Message
@@ -35,7 +36,11 @@ class ConversationRepository:
 
     async def messages(self, conversation_id: uuid.UUID) -> list[Message]:
         result = await self.session.scalars(
-            select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at, Message.id)
+            select(Message).where(Message.conversation_id == conversation_id).order_by(
+                Message.created_at,
+                case((Message.role == "user", 0), (Message.role == "assistant", 1), else_=2),
+                Message.id,
+            )
         )
         return list(result)
 
@@ -47,7 +52,9 @@ class ConversationRepository:
         return list(reversed(list(result)))
 
     async def add_message(self, conversation_id: uuid.UUID, role: str, content: str, **values) -> Message:
-        message = Message(conversation_id=conversation_id, role=role, content=content, **values)
+        now = datetime.now(UTC)
+        message = Message(conversation_id=conversation_id, role=role, content=content,
+                          created_at=now, updated_at=now, **values)
         self.session.add(message)
         await self.session.flush()
         return message

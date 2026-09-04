@@ -20,9 +20,25 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   const queryClient = useQueryClient(); const [conversationId, setConversationId] = useState<string | null>(initialId); const [draft, setDraft] = useState(""); const end = useRef<HTMLDivElement>(null);
   const documentInput = useRef<HTMLInputElement>(null); const audioInput = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | null>(null); const recordingChunks = useRef<Blob[]>([]);
+  const activeSendId = useRef<string | null>(null);
   const [attachmentMenu, setAttachmentMenu] = useState(false); const [recording, setRecording] = useState(false); const [uploadStatus, setUploadStatus] = useState("");
+  const [pendingUser, setPendingUser] = useState(""); const [streamedAnswer, setStreamedAnswer] = useState("");
   const detail = useQuery({ queryKey: ["conversation", conversationId], queryFn: () => api.conversation(conversationId!, token), enabled: !!conversationId });
-  const send = useMutation({ mutationFn: async (content: string) => { let id = conversationId; if (!id) { const created = await api.createConversation(token, content.slice(0, 52)); id = created.id; setConversationId(id); } return { id, result: await api.sendMessage(id, content, token) }; }, onSuccess: ({ id }) => { queryClient.invalidateQueries({ queryKey: ["conversation", id] }); queryClient.invalidateQueries({ queryKey: ["conversations"] }); } });
+  const send = useMutation({
+    mutationFn: async (content: string) => {
+      let id = conversationId;
+      if (!id) { const created = await api.createConversation(token, content.slice(0, 52)); id = created.id; setConversationId(id); }
+      activeSendId.current = id;
+      await api.streamMessage(id, content, token, (chunk) => setStreamedAnswer((answer) => answer + chunk));
+      return { id };
+    },
+    onSettled: async (result) => {
+      const id = result?.id || activeSendId.current || conversationId;
+      if (id) await queryClient.invalidateQueries({ queryKey: ["conversation", id] });
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      setPendingUser(""); setStreamedAnswer(""); activeSendId.current = null;
+    },
+  });
   const uploadDocument = useMutation({
     mutationFn: async (file: File) => {
       const uploaded = await api.uploadDocument(file, token); setUploadStatus(`Processing ${file.name}…`);
@@ -50,8 +66,8 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
     onError: (reason) => setUploadStatus(reason instanceof Error ? reason.message : "Audio upload failed"),
   });
   const messages = useMemo(() => detail.data?.messages || [], [detail.data?.messages]);
-  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, send.isPending]);
-  function submit(event?: FormEvent) { event?.preventDefault(); const content = draft.trim(); if (!content || send.isPending) return; setDraft(""); send.mutate(content); }
+  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, pendingUser, streamedAnswer]);
+  function submit(event?: FormEvent) { event?.preventDefault(); const content = draft.trim(); if (!content || send.isPending) return; setDraft(""); setPendingUser(content); setStreamedAnswer(""); send.mutate(content); }
   function newChat() { setConversationId(null); setDraft(""); router.push("/chat"); }
   async function toggleRecording() {
     if (recording && recorder.current) { recorder.current.stop(); setRecording(false); return; }
@@ -68,7 +84,8 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
     <div className="message-scroll">
       {!conversationId && <div className="welcome"><div className="welcome-symbol"><Bot size={34}/></div><span className="kicker">YOUR BILINGUAL THOUGHT PARTNER</span><h1>Muraho, {user.full_name?.split(" ")[0] || user.username}.</h1><p>What would you like to understand, create, or translate today?</p><div className="starter-grid">{starters.map((item, index) => <button key={item} onClick={() => setDraft(item)}><span>0{index + 1}</span>{item}<ArrowUp size={15}/></button>)}</div></div>}
       {messages.map((message) => <MessageBubble key={message.id} message={message}/>)}
-      {send.isPending && <div className="message assistant"><div className="message-icon"><Sparkles size={16}/></div><div className="thinking"><i/><i/><i/></div></div>}
+      {pendingUser && <article className="message user pending-message"><div className="message-body"><span>YOU</span><p>{pendingUser}</p></div></article>}
+      {send.isPending && <article className="message assistant streaming-message"><div className="message-icon"><Sparkles size={16}/></div><div className="message-body"><span>EVA</span>{streamedAnswer ? <MarkdownContent content={streamedAnswer}/> : <div className="thinking"><i/><i/><i/></div>}</div></article>}
       {send.error && <p className="chat-error" role="alert">{send.error.message}</p>}<div ref={end}/>
     </div>
     <form className="composer-wrap" onSubmit={submit}>
@@ -102,8 +119,12 @@ function MessageBubble({ message }: { message: Message }) {
     {assistant && <div className="message-icon"><Sparkles size={16}/></div>}
     <div className="message-body">
       <span>{assistant ? "EVA" : "YOU"}</span>
-      {assistant ? <div className="message-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div> : <p>{message.content}</p>}
+      {assistant ? <MarkdownContent content={message.content}/> : <p>{message.content}</p>}
       {assistant && <button type="button" className={`listen ${speaking ? "speaking" : ""}`} onClick={listen} aria-label={speaking ? "Stop reading response" : "Read response aloud"}><Volume2 size={14}/> {speaking ? "Stop" : "Listen"}</button>}
     </div>
   </article>;
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  return <div className="message-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></div>;
 }

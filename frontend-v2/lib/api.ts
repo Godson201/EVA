@@ -36,6 +36,37 @@ export const api = {
   conversation: (id: string, token: string) => request<ConversationDetail>(`/api/v1/conversations/${id}`, {}, token),
   createConversation: (token: string, title?: string) => request<Conversation>("/api/v1/conversations", { method: "POST", body: JSON.stringify({ title: title || null }) }, token),
   sendMessage: (id: string, content: string, token: string) => request<ChatResponse>(`/api/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }, token),
+  streamMessage: async (id: string, content: string, token: string, onDelta: (text: string) => void) => {
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}/api/v1/conversations/${id}/messages/stream`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content }),
+      });
+    } catch {
+      throw new EvaApiError(0, "network_error", "EVA cannot reach the server. Please try again.");
+    }
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as ApiError;
+      throw new EvaApiError(response.status, payload.error?.code || "request_failed", payload.error?.message || "EVA could not answer.");
+    }
+    if (!response.body) throw new EvaApiError(0, "stream_unavailable", "Your browser could not open the response stream.");
+    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read(); buffer += decoder.decode(value, { stream: !done });
+      const events = buffer.split("\n\n"); buffer = events.pop() || "";
+      for (const block of events) {
+        const event = block.split("\n").find((line) => line.startsWith("event: "))?.slice(7);
+        const raw = block.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+        if (!raw) continue;
+        const data = JSON.parse(raw) as { text?: string; message?: string; code?: string };
+        if (event === "delta" && data.text) onDelta(data.text);
+        if (event === "error") throw new EvaApiError(502, data.code || "stream_error", data.message || "EVA could not complete the response.");
+      }
+      if (done) break;
+    }
+  },
   documents: (token: string) => request<{ items: DocumentItem[]; total: number }>("/api/v1/documents?limit=100", {}, token),
   uploadDocument: async (file: File, token: string) => {
     const form = new FormData(); form.append("file", file);
