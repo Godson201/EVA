@@ -1,4 +1,4 @@
-import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentItem, Session, SpeechJob, StudyArtifact, VoiceConsent, VoiceProfile } from "@/types/api";
+import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentItem, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, Transcription, TranscriptionUpload, VoiceConsent, VoiceProfile } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -8,11 +8,12 @@ export class EvaApiError extends Error {
 
 async function request<T>(path: string, init: RequestInit = {}, token?: string | null): Promise<T> {
   let response: Response;
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...init,
       credentials: "include",
-      headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
+      headers: { ...(init.body && !isFormData ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
     });
   } catch {
     throw new EvaApiError(0, "network_error", "EVA cannot reach the server. Check that the API is running, then try again.");
@@ -36,6 +37,16 @@ export const api = {
   createConversation: (token: string, title?: string) => request<Conversation>("/api/v1/conversations", { method: "POST", body: JSON.stringify({ title: title || null }) }, token),
   sendMessage: (id: string, content: string, token: string) => request<ChatResponse>(`/api/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }, token),
   documents: (token: string) => request<{ items: DocumentItem[]; total: number }>("/api/v1/documents?limit=100", {}, token),
+  uploadDocument: async (file: File, token: string) => {
+    const form = new FormData(); form.append("file", file);
+    return request<DocumentUpload>("/api/v1/documents", { method: "POST", body: form }, token);
+  },
+  documentJob: (id: string, token: string) => request<ProcessingJob>(`/api/v1/documents/jobs/${id}`, {}, token),
+  uploadAudio: async (file: File, token: string, language = "auto") => {
+    const form = new FormData(); form.append("file", file); form.append("language", language);
+    return request<TranscriptionUpload>("/api/v1/speech/transcriptions", { method: "POST", body: form }, token);
+  },
+  transcription: (id: string, token: string) => request<Transcription>(`/api/v1/speech/transcriptions/${id}`, {}, token),
   generateStudy: (payload: Record<string, unknown>, token: string) => request<StudyArtifact>("/api/v1/study/generate", { method: "POST", body: JSON.stringify(payload) }, token),
   synthesize: (text: string, language: string, token: string) => request<{ job_id: string; status: string }>("/api/v1/speech/synthesize", { method: "POST", body: JSON.stringify({ text, language }) }, token),
   speechJob: (id: string, token: string) => request<SpeechJob>(`/api/v1/speech/jobs/${id}`, {}, token),
