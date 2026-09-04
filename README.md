@@ -50,3 +50,7 @@ Phase 8 audio validation, queued Whisper transcription, unified TTS fallbacks, p
 ## Personal memory
 
 Phase 9 explicit-consent memory states, pgvector retrieval, retention controls, sensitive-data exclusions, and deletion behavior are documented in `docs/memory.md`.
+
+## Next.js frontend migration
+
+Phase 10 introduces the parallel `frontend-v2` Next.js application, central chat experience, session handling, route shells, and rollback strategy documented in `docs/frontend-v2.md`. The existing CRA frontend remains intact.

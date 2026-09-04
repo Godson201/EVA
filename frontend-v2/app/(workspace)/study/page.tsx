@@ -1,0 +1,2 @@
+import { BookOpen } from "lucide-react"; import { FeaturePreview } from "@/components/feature-preview";
+export default function Page() { return <FeaturePreview eyebrow="STUDY" title="Turn material into mastery." description="Summaries, explanations, quizzes, and flashcards shaped around how you learn." icon={BookOpen} capabilities={["Explain difficult concepts", "Generate quizzes", "Build revision cards"]}/>; }

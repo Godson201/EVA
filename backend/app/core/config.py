@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     memory_retrieval_limit: int = Field(default=5, ge=1, le=20)
     memory_max_content_chars: int = Field(default=1000, ge=50, le=10000)
     memory_max_retention_days: int = Field(default=365, ge=1, le=3650)
+    access_token_minutes: int = Field(default=15, ge=1, le=1440)
+    refresh_token_days: int = Field(default=30, ge=1, le=365)
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":

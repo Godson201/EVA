@@ -1,0 +1,2 @@
+import { Languages } from "lucide-react"; import { FeaturePreview } from "@/components/feature-preview";
+export default function Page() { return <FeaturePreview eyebrow="TRANSLATE" title="Meaning, not just words." description="Move naturally between English and Kinyarwanda with context-aware modes." icon={Languages} capabilities={["Automatic language detection", "Professional and academic tone", "Side-by-side review"]}/>; }

@@ -1,0 +1,2 @@
+import { Mic2 } from "lucide-react"; import { FeaturePreview } from "@/components/feature-preview";
+export default function Page() { return <FeaturePreview eyebrow="VOICE" title="Speak naturally. Keep control." description="Transcribe recordings and listen to EVA with consent-first voice tools." icon={Mic2} capabilities={["English and Kinyarwanda STT", "Noise-aware transcription", "Authorized voice profiles"]}/>; }

@@ -19,6 +19,8 @@ __pycache__/
 # JavaScript
 node_modules/
 build/
+.next/
+*.tsbuildinfo
 coverage/
 npm-debug.log*
 yarn-debug.log*

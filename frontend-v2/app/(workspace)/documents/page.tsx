@@ -1,0 +1,2 @@
+import { FileText } from "lucide-react"; import { FeaturePreview } from "@/components/feature-preview";
+export default function Page() { return <FeaturePreview eyebrow="DOCUMENTS" title="Ask better questions of your files." description="Search, summarize, and discuss source material with traceable citations." icon={FileText} capabilities={["Upload notes and reports", "Semantic document search", "Answers with sources"]}/>; }

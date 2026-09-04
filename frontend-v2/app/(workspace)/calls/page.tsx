@@ -1,0 +1,2 @@
+import { PhoneCall } from "lucide-react"; import { FeaturePreview } from "@/components/feature-preview";
+export default function Page() { return <FeaturePreview eyebrow="CALL ASSISTANT" title="Clarity in every conversation." description="A future-ready space for live translation, reply suggestions, and action items." icon={PhoneCall} capabilities={["Live bilingual support", "Professional reply guidance", "Conversation follow-up"]}/>; }
