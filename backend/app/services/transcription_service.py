@@ -46,6 +46,12 @@ class WhisperTranscriptionService:
         self.settings = settings
         self.audio = AudioPreprocessingService()
 
+    @staticmethod
+    def _max_new_tokens(model) -> int:
+        """Leave room for Whisper's decoder start, language, and task tokens."""
+        max_positions = getattr(model.config, "max_target_positions", 448)
+        return max(1, min(440, max_positions - 8))
+
     def _transcribe_sync(self, audio, rate, language):
         import torch
         model_name = self.settings.whisper_english_model if language == "en" else self.settings.whisper_kinyarwanda_model
@@ -56,7 +62,11 @@ class WhisperTranscriptionService:
             if len(chunk) < rate // 2:
                 continue
             features = processor(chunk, sampling_rate=rate, return_tensors="pt").input_features.to(device)
-            kwargs = {"language": "en" if language == "en" else "sw", "task": "transcribe", "max_new_tokens": 448}
+            kwargs = {
+                "language": "en" if language == "en" else "sw",
+                "task": "transcribe",
+                "max_new_tokens": self._max_new_tokens(model),
+            }
             with torch.no_grad():
                 ids = model.generate(features, **kwargs)
             text = processor.batch_decode(ids, skip_special_tokens=True)[0].strip()

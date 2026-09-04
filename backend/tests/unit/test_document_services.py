@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from app.core.errors import AppError
@@ -24,6 +25,20 @@ class DocumentServiceTests(unittest.IsolatedAsyncioTestCase):
     def test_rejects_oversized_documents(self):
         with self.assertRaises(AppError):
             self.service.validate("notes.txt", "text/plain", b"12345", 4)
+
+    def test_reports_missing_tesseract_clearly(self):
+        import pytesseract
+        from PIL import Image
+
+        with patch.object(pytesseract, "image_to_string", side_effect=pytesseract.TesseractNotFoundError()):
+            with self.assertRaisesRegex(RuntimeError, "Install Tesseract OCR"):
+                self.service._ocr_image(Image.new("RGB", (10, 10), "white"))
+
+    def test_whisper_generation_limit_leaves_prompt_space(self):
+        from app.services.transcription_service import WhisperTranscriptionService
+
+        model = type("Model", (), {"config": type("Config", (), {"max_target_positions": 448})()})()
+        self.assertLessEqual(WhisperTranscriptionService._max_new_tokens(model) + 4, 448)
 
 
 class LocalStorageTests(unittest.IsolatedAsyncioTestCase):

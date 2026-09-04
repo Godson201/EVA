@@ -38,7 +38,10 @@ async def _process(job_id: str) -> dict:
             cleaned = extractor.clean(extracted.text)
             chunks = extractor.chunk(cleaned)
             if not chunks:
-                raise ValueError("No readable text was extracted")
+                raise ValueError(
+                    "No readable text was found. The document may be blank, damaged, "
+                    "password-protected, or the scan may be too unclear for OCR."
+                )
             embeddings = await HuggingFaceEmbeddingService(settings).embed([chunk.content for chunk in chunks], "passage")
             await DocumentRepository(session).replace_chunks(document.id, chunks, embeddings)
             document.extracted_text, document.word_count, document.page_count = cleaned, len(cleaned.split()), extracted.page_count

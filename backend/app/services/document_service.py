@@ -59,9 +59,7 @@ class DocumentService:
 
     def _extract_sync(self, content: bytes, document_type: str) -> ExtractedDocument:
         if document_type == "pdf":
-            import PyPDF2
-            reader = PyPDF2.PdfReader(io.BytesIO(content))
-            return ExtractedDocument("\n\n".join((page.extract_text() or "").strip() for page in reader.pages), len(reader.pages))
+            return self._extract_pdf(content)
         if document_type == "docx":
             from docx import Document
             doc = Document(io.BytesIO(content))
@@ -69,8 +67,41 @@ class DocumentService:
         if document_type == "txt":
             return ExtractedDocument(content.decode("utf-8-sig"))
         from PIL import Image
+        return ExtractedDocument(self._ocr_image(Image.open(io.BytesIO(content))))
+
+    def _extract_pdf(self, content: bytes) -> ExtractedDocument:
+        import PyPDF2
+
+        reader = PyPDF2.PdfReader(io.BytesIO(content))
+        page_text = [(page.extract_text() or "").strip() for page in reader.pages]
+        empty_pages = [index for index, text in enumerate(page_text) if not text]
+        if empty_pages:
+            try:
+                import fitz
+            except ImportError as exc:
+                raise RuntimeError("Scanned PDF support is unavailable because PyMuPDF is not installed") from exc
+
+            pdf = fitz.open(stream=content, filetype="pdf")
+            from PIL import Image
+            try:
+                for index in empty_pages:
+                    pixmap = pdf[index].get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                    image = Image.open(io.BytesIO(pixmap.tobytes("png")))
+                    page_text[index] = self._ocr_image(image).strip()
+            finally:
+                pdf.close()
+        return ExtractedDocument("\n\n".join(page_text), len(reader.pages))
+
+    @staticmethod
+    def _ocr_image(image) -> str:
         import pytesseract
-        return ExtractedDocument(pytesseract.image_to_string(Image.open(io.BytesIO(content))))
+        try:
+            return pytesseract.image_to_string(image)
+        except pytesseract.TesseractNotFoundError as exc:
+            raise RuntimeError(
+                "This document contains scanned images. Install Tesseract OCR on Windows, "
+                "then restart the EVA worker."
+            ) from exc
 
     def clean(self, text: str) -> str:
         text = text.replace("\x00", "")
