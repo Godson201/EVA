@@ -13,6 +13,7 @@ class DatabaseModelTests(unittest.TestCase):
             "users", "refresh_tokens", "conversations", "messages", "attachments",
             "documents", "document_chunks", "transcriptions", "translations",
             "voice_profiles", "memories", "user_preferences", "vocabulary_items", "activity_logs",
+            "processing_jobs",
         }
         self.assertEqual(expected, set(Base.metadata.tables))
 

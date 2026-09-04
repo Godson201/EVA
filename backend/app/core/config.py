@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
     translation_model: str = "facebook/nllb-200-distilled-600M"
     translation_max_input_chars: int = Field(default=20_000, ge=100, le=100_000)
+    redis_url: str = "redis://localhost:6379/0"
+    storage_backend: Literal["local", "s3"] = "local"
+    storage_local_root: str = "storage"
+    max_document_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
+    embedding_model: str = "intfloat/multilingual-e5-base"
+    s3_bucket: str = ""
+    s3_endpoint_url: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_region: str = "auto"
 
     @model_validator(mode="after")
     def validate_environment(self) -> "Settings":

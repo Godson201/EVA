@@ -198,5 +198,18 @@ class ActivityLog(UUIDPrimaryKeyMixin, LegacyIdentityMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class ProcessingJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "processing_jobs"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    task_name: Mapped[str] = mapped_column(String(100), index=True)
+    celery_task_id: Mapped[str | None] = mapped_column(String(255), unique=True)
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    progress: Mapped[int] = mapped_column(default=0)
+    attempts: Mapped[int] = mapped_column(default=0)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+
 Index("ix_document_chunks_embedding_hnsw", DocumentChunk.embedding, postgresql_using="hnsw", postgresql_ops={"embedding": "vector_cosine_ops"})
 Index("ix_memories_embedding_hnsw", Memory.embedding, postgresql_using="hnsw", postgresql_ops={"embedding": "vector_cosine_ops"})

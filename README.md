@@ -38,3 +38,7 @@ Phase 5 conversation endpoints, provider configuration, and streaming behavior a
 ## Translation API
 
 Phase 6 language detection, modes, NLLB fallback behavior, and API contracts are documented in `docs/translation.md`.
+
+## Document intelligence
+
+Phase 7 document processing, storage, worker, semantic search, and cited Q&A are documented in `docs/document-rag.md`.
