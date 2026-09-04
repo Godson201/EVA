@@ -54,3 +54,7 @@ Phase 9 explicit-consent memory states, pgvector retrieval, retention controls, 
 ## Next.js frontend migration
 
 Phase 10 introduces the parallel `frontend-v2` Next.js application, central chat experience, session handling, route shells, and rollback strategy documented in `docs/frontend-v2.md`. The existing CRA frontend remains intact.
+
+## Study mode
+
+Phase 11 structured summaries, notes, explanations, quizzes, flashcards, vocabulary, document citations, and read-aloud integration are documented in `docs/study-mode.md`.

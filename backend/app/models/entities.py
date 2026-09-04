@@ -193,6 +193,24 @@ class VocabularyItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (UniqueConstraint("user_id", "term", "language"),)
 
 
+class StudyArtifact(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "study_artifacts"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"), index=True)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"), index=True)
+    artifact_type: Mapped[str] = mapped_column(String(30), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    input_text: Mapped[str | None] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(20), default="en")
+    difficulty: Mapped[str] = mapped_column(String(20), default="intermediate")
+    audience: Mapped[str] = mapped_column(String(100), default="general")
+    length: Mapped[str] = mapped_column(String(20), default="medium")
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    source_refs: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    provider: Mapped[str | None] = mapped_column(String(50))
+    model: Mapped[str | None] = mapped_column(String(100))
+
+
 class ActivityLog(UUIDPrimaryKeyMixin, LegacyIdentityMixin, Base):
     __tablename__ = "activity_logs"
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)

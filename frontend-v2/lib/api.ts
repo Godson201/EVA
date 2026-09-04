@@ -1,4 +1,4 @@
-import type { ApiError, ChatResponse, Conversation, ConversationDetail, ConversationList, Session } from "@/types/api";
+import type { ApiError, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentItem, Session, SpeechJob, StudyArtifact } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -27,4 +27,13 @@ export const api = {
   conversation: (id: string, token: string) => request<ConversationDetail>(`/api/v1/conversations/${id}`, {}, token),
   createConversation: (token: string, title?: string) => request<Conversation>("/api/v1/conversations", { method: "POST", body: JSON.stringify({ title: title || null }) }, token),
   sendMessage: (id: string, content: string, token: string) => request<ChatResponse>(`/api/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }, token),
+  documents: (token: string) => request<{ items: DocumentItem[]; total: number }>("/api/v1/documents?limit=100", {}, token),
+  generateStudy: (payload: Record<string, unknown>, token: string) => request<StudyArtifact>("/api/v1/study/generate", { method: "POST", body: JSON.stringify(payload) }, token),
+  synthesize: (text: string, language: string, token: string) => request<{ job_id: string; status: string }>("/api/v1/speech/synthesize", { method: "POST", body: JSON.stringify({ text, language }) }, token),
+  speechJob: (id: string, token: string) => request<SpeechJob>(`/api/v1/speech/jobs/${id}`, {}, token),
+  speechAudio: async (id: string, token: string) => {
+    const response = await fetch(`${API_URL}/api/v1/speech/attachments/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) throw new EvaApiError(response.status, "audio_unavailable", "Generated audio is unavailable");
+    return response.blob();
+  },
 };
