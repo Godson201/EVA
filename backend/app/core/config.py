@@ -26,7 +26,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     log_level: str = "INFO"
     cors_origins: list[str] = Field(
-        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
+        default_factory=lambda: [
+            "http://localhost:3000", "http://127.0.0.1:3000",
+            "http://localhost:3100", "http://127.0.0.1:3100",
+        ]
     )
     secret_key: str = "eva-development-key-change-in-production"
     legacy_app_enabled: bool = False

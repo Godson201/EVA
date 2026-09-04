@@ -7,11 +7,16 @@ export class EvaApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}, token?: string | null): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      credentials: "include",
+      headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
+    });
+  } catch {
+    throw new EvaApiError(0, "network_error", "EVA cannot reach the server. Check that the API is running, then try again.");
+  }
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as ApiError;
     throw new EvaApiError(response.status, payload.error?.code || "request_failed", payload.error?.message || payload.detail || "Request failed");
@@ -21,7 +26,7 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string |
 
 export const api = {
   login: (identifier: string, password: string) => request<Session>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ identifier, password }) }),
-  register: (payload: { username: string; email: string; password: string; full_name?: string }) => request<Session>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(payload) }),
+  register: (payload: { username: string; email: string; password: string; full_name: string }) => request<Session>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(payload) }),
   forgotPassword: (identifier: string) => request<{ message: string; reset_token?: string | null }>("/api/v1/auth/forgot-password", { method: "POST", body: JSON.stringify({ identifier }) }),
   resetPassword: (token: string, newPassword: string) => request<{ message: string }>("/api/v1/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password: newPassword }) }),
   refresh: () => request<Session>("/api/v1/auth/refresh", { method: "POST" }),
