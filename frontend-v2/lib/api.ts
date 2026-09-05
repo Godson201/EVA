@@ -1,4 +1,4 @@
-import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentAnswer, DocumentContent, DocumentItem, DocumentSource, DocumentSummary, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, VoiceConsent, VoiceProfile } from "@/types/api";
+import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentAnswer, DocumentContent, DocumentItem, DocumentSource, DocumentSummary, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, Translation, TranslationResult, VoiceConsent, VoiceProfile } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -85,6 +85,8 @@ export const api = {
   generateStudy: (payload: Record<string, unknown>, token: string) => request<StudyArtifact>("/api/v1/study/generate", { method: "POST", body: JSON.stringify(payload) }, token),
   studyArtifacts: (token: string) => request<StudyArtifactList>("/api/v1/study/artifacts?limit=100", {}, token),
   deleteStudyArtifact: (id: string, token: string) => request<void>(`/api/v1/study/artifacts/${id}`, { method: "DELETE" }, token),
+  translate: (text: string, sourceLanguage: string | null, targetLanguage: string, mode: string, token: string) => request<TranslationResult>("/api/v1/translations", { method: "POST", body: JSON.stringify({ text, source_language: sourceLanguage, target_language: targetLanguage, mode }) }, token),
+  translations: (token: string) => request<{ items: Translation[]; total: number }>("/api/v1/translations?limit=20", {}, token),
   synthesize: (text: string, language: string, token: string, voiceProfileId?: string) => request<{ job_id: string; status: string }>("/api/v1/speech/synthesize", { method: "POST", body: JSON.stringify({ text, language, voice_profile_id: voiceProfileId || null }) }, token),
   speechJob: (id: string, token: string) => request<SpeechJob>(`/api/v1/speech/jobs/${id}`, {}, token),
   speechAudio: async (id: string, token: string) => {
