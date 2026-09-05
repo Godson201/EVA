@@ -14,6 +14,7 @@ export type Transcription = { id: string; raw_text: string | null; corrected_tex
 export type TranscriptionUpload = { transcription: Transcription; job_id: string };
 export type StudyContent = { summary?: string | null; key_points: string[]; notes: string[]; explanation?: string | null; quiz: { question: string; options: string[]; answer: string; explanation: string; source_ids: string[] }[]; flashcards: { front: string; back: string; source_ids: string[] }[]; vocabulary: { term: string; definition: string; synonyms: string[]; translation?: string | null; source_ids: string[] }[]; synonyms: string[]; translated_text?: string | null };
 export type StudyArtifact = { id: string; artifact_type: string; title: string; language: string; difficulty: string; audience: string; length: string; content: StudyContent; source_refs: { id: string; chunk_id: string; document_id: string; page_number: number | null; excerpt: string }[]; created_at: string };
+export type StudyArtifactList = { items: StudyArtifact[]; total: number };
 export type SpeechJob = { id: string; status: string; error_message: string | null; result: { attachment_id?: string } };
 export type VoiceConsent = { version: string; title: string; risks: string[]; required_assertions: string[] };
 export type VoiceProfile = { id: string; name: string; language: string | null; status: string; consent_version: string | null; purpose: string | null; consented_at: string | null; revoked_at: string | null; quality_metadata: Record<string, string | number | boolean>; created_at: string };
