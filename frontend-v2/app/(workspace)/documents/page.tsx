@@ -31,7 +31,9 @@ export default function DocumentsPage() {
     [answer, setAnswer] = useState(""),
     [sources, setSources] = useState<DocumentSource[]>([]),
     [showSources, setShowSources] = useState(false),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [typing, setTyping] = useState(false);
+  const typingRun = useRef(0);
   const documents = useQuery({
     queryKey: ["documents"],
     queryFn: () => api.documents(token),
@@ -61,7 +63,7 @@ export default function DocumentsPage() {
   const ask = useMutation({
     mutationFn: () => api.askDocument(query.trim(), selectedId, token),
     onSuccess: (result) => {
-      setAnswer(result.answer);
+      typeAnswer(result.answer);
       setSources(result.sources);
       setShowSources(false);
       setQuery("");
@@ -78,7 +80,7 @@ export default function DocumentsPage() {
   const summarize = useMutation({
     mutationFn: () => api.summarizeDocument(selectedId!, token),
     onSuccess: (result) => {
-      setAnswer(result.summary);
+      typeAnswer(result.summary);
       setSources(result.sources);
       setShowSources(false);
     },
@@ -89,7 +91,22 @@ export default function DocumentsPage() {
     if (mode === "ask") ask.mutate();
     else search.mutate();
   }
-  const busy = ask.isPending || search.isPending || summarize.isPending;
+  async function typeAnswer(content: string) {
+    const run = ++typingRun.current;
+    setAnswer("");
+    setTyping(true);
+    const step = content.length > 2500 ? 12 : content.length > 1000 ? 7 : 4;
+    for (let index = step; index < content.length; index += step) {
+      if (run !== typingRun.current) return;
+      setAnswer(content.slice(0, index));
+      await delay(12);
+    }
+    if (run === typingRun.current) {
+      setAnswer(content);
+      setTyping(false);
+    }
+  }
+  const busy = ask.isPending || search.isPending || summarize.isPending || typing;
   return (
     <section className="documents-page">
       <header className="documents-head">
@@ -161,6 +178,8 @@ export default function DocumentsPage() {
               key={item.id}
               className={`document-row ${selectedId === item.id ? "selected" : ""}`}
               onClick={() => {
+                typingRun.current += 1;
+                setTyping(false);
                 setSelectedId(item.id);
                 setAnswer("");
                 setSources([]);
@@ -222,7 +241,7 @@ export default function DocumentsPage() {
                 </div>
               )}
               {answer && (
-                <article className="document-answer">
+                <article className={`document-answer ${typing ? "typing" : ""}`}>
                   <span>EVA ANSWER</span>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {answer}
