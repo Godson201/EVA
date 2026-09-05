@@ -11,7 +11,7 @@ from app.api.dependencies import CurrentUser, get_current_user
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.repositories.documents import DocumentRepository
-from app.schemas.document import DocumentAnswer, DocumentList, DocumentRead, DocumentSummary, DocumentUploadResult, ProcessingJobRead, QuestionRequest, SearchHit, SearchRequest
+from app.schemas.document import DocumentAnswer, DocumentContent, DocumentList, DocumentRead, DocumentSummary, DocumentUploadResult, ProcessingJobRead, QuestionRequest, SearchHit, SearchRequest
 from app.services.document_service import DocumentService
 from app.services.embedding_service import HuggingFaceEmbeddingService
 from app.services.job_service import CeleryJobService, create_celery_app
@@ -118,6 +118,16 @@ async def get_document(document_id: uuid.UUID, user: CurrentUser = Depends(get_c
     if document is None:
         raise AppError("document_not_found", "Document not found", status_code=404)
     return document
+
+
+@router.get("/{document_id}/content", response_model=DocumentContent)
+async def get_document_content(document_id: uuid.UUID, user: CurrentUser = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    document = await DocumentRepository(session).get_owned(document_id, user.id)
+    if document is None:
+        raise AppError("document_not_found", "Document not found", status_code=404)
+    if document.status != "ready" or not document.extracted_text:
+        raise AppError("document_content_not_ready", "Document text is not ready", status_code=409)
+    return DocumentContent(id=document.id, title=document.title, text=document.extracted_text)
 
 
 @router.post("/{document_id}/summary", response_model=DocumentSummary)

@@ -69,3 +69,9 @@ class DocumentAnswer(BaseModel):
 class DocumentSummary(BaseModel):
     summary: str
     sources: list[SearchHit]
+
+
+class DocumentContent(BaseModel):
+    id: uuid.UUID
+    title: str
+    text: str

@@ -23,6 +23,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   const activeSendId = useRef<string | null>(null);
   const [attachmentMenu, setAttachmentMenu] = useState(false); const [recording, setRecording] = useState(false); const [uploadStatus, setUploadStatus] = useState("");
   const [audioLanguage, setAudioLanguage] = useState<"rw" | "en">("rw");
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState("");
   const [pendingUser, setPendingUser] = useState(""); const [streamedAnswer, setStreamedAnswer] = useState("");
   const detail = useQuery({ queryKey: ["conversation", conversationId], queryFn: () => api.conversation(conversationId!, token), enabled: !!conversationId });
   const send = useMutation({
@@ -45,16 +46,22 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
       const uploaded = await api.uploadDocument(file, token); setUploadStatus(`Processing ${file.name}…`);
       for (let attempt = 0; attempt < 90; attempt++) {
         await delay(1000); const job = await api.documentJob(uploaded.job_id, token);
-        if (job.status === "completed") return uploaded.document;
+        if (job.status === "completed") return api.documentContent(uploaded.document.id, token);
         if (job.status === "failed") throw new Error(job.error_message || "Document processing failed");
       }
       throw new Error("The document is still processing. You can find it in Documents.");
     },
-    onSuccess: (document) => { setUploadStatus(`${document.title} is ready in Documents.`); queryClient.invalidateQueries({ queryKey: ["documents"] }); },
+    onSuccess: (document) => {
+      const text = document.text.length > 12000 ? `${document.text.slice(0, 12000)}\n\n[Document shortened for rewriting]` : document.text;
+      setDraft(`Rewrite the following document professionally. Preserve its meaning and important details, improve its grammar, clarity, structure, and formatting. Return only the rewritten content.\n\n${text}`);
+      setUploadStatus(`${document.title} is ready. Review the rewrite instruction, then press Send.`);
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
     onError: (reason) => setUploadStatus(reason instanceof Error ? reason.message : "Document upload failed"),
   });
   const transcribeAudio = useMutation({
     mutationFn: async (file: File) => {
+      setAudioPreviewUrl(URL.createObjectURL(file));
       const uploaded = await api.uploadAudio(file, token, audioLanguage); setUploadStatus(`Transcribing ${file.name} as ${audioLanguage === "rw" ? "Kinyarwanda" : "English"}…`);
       for (let attempt = 0; attempt < 120; attempt++) {
         await delay(1000); const job = await api.speechJob(uploaded.job_id, token);
@@ -68,6 +75,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   });
   const messages = useMemo(() => detail.data?.messages || [], [detail.data?.messages]);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, pendingUser, streamedAnswer]);
+  useEffect(() => () => { if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl); }, [audioPreviewUrl]);
   function submit(event?: FormEvent) { event?.preventDefault(); const content = draft.trim(); if (!content || send.isPending) return; setDraft(""); setPendingUser(content); setStreamedAnswer(""); send.mutate(content); }
   function newChat() { setConversationId(null); setDraft(""); router.push("/chat"); }
   async function toggleRecording() {
@@ -90,6 +98,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
       {send.error && <p className="chat-error" role="alert">{send.error.message}</p>}<div ref={end}/>
     </div>
     <form className="composer-wrap" onSubmit={submit}>
+      {audioPreviewUrl && <div className="audio-preview"><span>Audio playback</span><audio controls src={audioPreviewUrl}/><button type="button" onClick={() => setAudioPreviewUrl("")} aria-label="Close audio playback">×</button></div>}
       {uploadStatus && <div className="upload-status">{(uploadDocument.isPending || transcribeAudio.isPending) && <LoaderCircle className="spin"/>}<span>{uploadStatus}</span><button type="button" onClick={() => setUploadStatus("")} aria-label="Dismiss upload status">×</button></div>}
       <div className="composer"><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="Message EVA in English or Kinyarwanda…" rows={1} aria-label="Message EVA"/><div className="composer-actions"><div className="media-actions">
         <div className="audio-language" role="group" aria-label="Recording language"><button type="button" className={audioLanguage === "rw" ? "active" : ""} onClick={() => setAudioLanguage("rw")} title="Transcribe in Kinyarwanda">RW</button><button type="button" className={audioLanguage === "en" ? "active" : ""} onClick={() => setAudioLanguage("en")} title="Transcribe in English">EN</button></div>

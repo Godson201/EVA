@@ -1,4 +1,4 @@
-import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentItem, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, Transcription, TranscriptionUpload, VoiceConsent, VoiceProfile } from "@/types/api";
+import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentContent, DocumentItem, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, Transcription, TranscriptionUpload, VoiceConsent, VoiceProfile } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -73,6 +73,7 @@ export const api = {
     return request<DocumentUpload>("/api/v1/documents", { method: "POST", body: form }, token);
   },
   documentJob: (id: string, token: string) => request<ProcessingJob>(`/api/v1/documents/jobs/${id}`, {}, token),
+  documentContent: (id: string, token: string) => request<DocumentContent>(`/api/v1/documents/${id}/content`, {}, token),
   uploadAudio: async (file: File, token: string, language = "auto") => {
     const form = new FormData(); form.append("file", file); form.append("language", language);
     return request<TranscriptionUpload>("/api/v1/speech/transcriptions", { method: "POST", body: form }, token);

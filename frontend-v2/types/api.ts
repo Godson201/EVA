@@ -7,6 +7,7 @@ export type ConversationList = { items: Conversation[]; total: number };
 export type ChatResponse = { user_message: Message; assistant_message: Message };
 export type ApiError = { error?: { code?: string; message?: string }; detail?: string };
 export type DocumentItem = { id: string; title: string; status: string };
+export type DocumentContent = { id: string; title: string; text: string };
 export type DocumentUpload = { document: DocumentItem; job_id: string };
 export type ProcessingJob = { id: string; status: string; progress: number; error_message: string | null; result: Record<string, unknown> };
 export type Transcription = { id: string; raw_text: string | null; corrected_text: string | null; status: string; language: string | null };
