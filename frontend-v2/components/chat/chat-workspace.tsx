@@ -24,6 +24,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   const [attachmentMenu, setAttachmentMenu] = useState(false); const [recording, setRecording] = useState(false); const [uploadStatus, setUploadStatus] = useState("");
   const [audioLanguage, setAudioLanguage] = useState<"rw" | "en">("rw");
   const [audioPreviewUrl, setAudioPreviewUrl] = useState("");
+  const [pendingDocument, setPendingDocument] = useState<{ title: string; text: string } | null>(null);
   const [pendingUser, setPendingUser] = useState(""); const [streamedAnswer, setStreamedAnswer] = useState("");
   const detail = useQuery({ queryKey: ["conversation", conversationId], queryFn: () => api.conversation(conversationId!, token), enabled: !!conversationId });
   const send = useMutation({
@@ -53,8 +54,9 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
     },
     onSuccess: (document) => {
       const text = document.text.length > 12000 ? `${document.text.slice(0, 12000)}\n\n[Document shortened for rewriting]` : document.text;
-      setDraft(`Rewrite the following document professionally. Preserve its meaning and important details, improve its grammar, clarity, structure, and formatting. Return only the rewritten content.\n\n${text}`);
-      setUploadStatus(`${document.title} is ready. Review the rewrite instruction, then press Send.`);
+      setPendingDocument({ title: document.title, text });
+      setDraft("Rewrite this document faithfully, then explain it clearly.");
+      setUploadStatus(`${document.title} is attached. EVA will wait until you press Enter or Send.`);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
     onError: (reason) => setUploadStatus(reason instanceof Error ? reason.message : "Document upload failed"),
@@ -76,8 +78,16 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   const messages = useMemo(() => detail.data?.messages || [], [detail.data?.messages]);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, pendingUser, streamedAnswer]);
   useEffect(() => () => { if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl); }, [audioPreviewUrl]);
-  function submit(event?: FormEvent) { event?.preventDefault(); const content = draft.trim(); if (!content || send.isPending) return; setDraft(""); setPendingUser(content); setStreamedAnswer(""); send.mutate(content); }
-  function newChat() { setConversationId(null); setDraft(""); router.push("/chat"); }
+  function submit(event?: FormEvent) {
+    event?.preventDefault();
+    const instruction = draft.trim() || (pendingDocument ? "Rewrite this document faithfully, then explain it clearly." : "");
+    if (!instruction || send.isPending) return;
+    const content = pendingDocument
+      ? `${instruction}\n\nFollow this response structure:\n1. Rewritten content — preserve the original meaning and all important details; do not invent information.\n2. Explanation — explain the content clearly in plain language.\n\nAttached document: ${pendingDocument.title}\n\n${pendingDocument.text}`
+      : instruction;
+    setDraft(""); setPendingUser(pendingDocument ? `${instruction}\n\n📎 ${pendingDocument.title}` : instruction); setPendingDocument(null); setStreamedAnswer(""); send.mutate(content);
+  }
+  function newChat() { setConversationId(null); setDraft(""); setPendingDocument(null); router.push("/chat"); }
   async function toggleRecording() {
     if (recording && recorder.current) { recorder.current.stop(); setRecording(false); return; }
     try {
@@ -100,11 +110,11 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
     <form className="composer-wrap" onSubmit={submit}>
       {audioPreviewUrl && <div className="audio-preview"><span>Audio playback</span><audio controls src={audioPreviewUrl}/><button type="button" onClick={() => setAudioPreviewUrl("")} aria-label="Close audio playback">×</button></div>}
       {uploadStatus && <div className="upload-status">{(uploadDocument.isPending || transcribeAudio.isPending) && <LoaderCircle className="spin"/>}<span>{uploadStatus}</span><button type="button" onClick={() => setUploadStatus("")} aria-label="Dismiss upload status">×</button></div>}
-      <div className="composer"><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="Message EVA in English or Kinyarwanda…" rows={1} aria-label="Message EVA"/><div className="composer-actions"><div className="media-actions">
+      <div className="composer">{pendingDocument && <div className="document-chip"><FileText/><span><strong>{pendingDocument.title}</strong><small>Ready to rewrite and explain</small></span><button type="button" onClick={() => setPendingDocument(null)} aria-label="Remove attached document">×</button></div>}<textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="Message EVA in English or Kinyarwanda…" rows={1} aria-label="Message EVA"/><div className="composer-actions"><div className="media-actions">
         <div className="audio-language" role="group" aria-label="Recording language"><button type="button" className={audioLanguage === "rw" ? "active" : ""} onClick={() => setAudioLanguage("rw")} title="Transcribe in Kinyarwanda">RW</button><button type="button" className={audioLanguage === "en" ? "active" : ""} onClick={() => setAudioLanguage("en")} title="Transcribe in English">EN</button></div>
         <div className="attach-control"><Button type="button" variant="ghost" size="icon" aria-label="Upload a document or audio file" title="Upload file" onClick={() => setAttachmentMenu((open) => !open)}><FilePlus2 size={19}/></Button>{attachmentMenu && <div className="attachment-menu"><button type="button" onClick={() => { setAttachmentMenu(false); documentInput.current?.click(); }}><FileText/> Upload document</button><button type="button" onClick={() => { setAttachmentMenu(false); audioInput.current?.click(); }}><FileAudio/> Upload audio</button></div>}</div>
         <Button type="button" variant="ghost" size="icon" className={recording ? "recording-button" : ""} aria-label={recording ? "Stop recording" : "Record audio"} title={recording ? "Stop recording" : "Record audio"} onClick={toggleRecording}>{recording ? <Square size={16}/> : <Mic size={19}/>}</Button>
-      </div><Button size="icon" aria-label="Send message" disabled={!draft.trim() || send.isPending}><ArrowUp size={19}/></Button></div></div>
+      </div><Button size="icon" aria-label="Send message" disabled={(!draft.trim() && !pendingDocument) || send.isPending}><ArrowUp size={19}/></Button></div></div>
       <input ref={documentInput} className="hidden-file-input" type="file" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.tif,.tiff,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/tiff" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadDocument.mutate(file); event.target.value = ""; }}/>
       <input ref={audioInput} className="hidden-file-input" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.webm" onChange={(event) => { const file = event.target.files?.[0]; if (file) transcribeAudio.mutate(file); event.target.value = ""; }}/>
       <small>EVA can make mistakes. Verify important information.</small>
