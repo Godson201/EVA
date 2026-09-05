@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
 import re
+import shutil
 from dataclasses import dataclass
 
 from app.core.errors import AppError
@@ -95,6 +97,10 @@ class DocumentService:
     @staticmethod
     def _ocr_image(image) -> str:
         import pytesseract
+        if not shutil.which("tesseract") and os.name == "nt":
+            common_install = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+            if os.path.isfile(common_install):
+                pytesseract.pytesseract.tesseract_cmd = common_install
         try:
             return pytesseract.image_to_string(image)
         except pytesseract.TesseractNotFoundError as exc:
