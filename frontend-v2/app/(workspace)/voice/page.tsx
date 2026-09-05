@@ -1,26 +1,342 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, Download, LoaderCircle, Mic2, ShieldCheck, Trash2, Volume2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Download,
+  LoaderCircle,
+  Mic2,
+  ShieldCheck,
+  Square,
+  Trash2,
+  Volume2,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export default function VoicePage(){
-  const token=useAuthStore(s=>s.accessToken)!, queryClient=useQueryClient();
-  const [file,setFile]=useState<File|null>(null),[name,setName]=useState("My voice"),[purpose,setPurpose]=useState("Read my private notes aloud"),[language,setLanguage]=useState("en"),[checks,setChecks]=useState([false,false,false]);
-  const consent=useQuery({queryKey:["voice-consent"],queryFn:api.voiceConsent});
-  const profiles=useQuery({queryKey:["voice-profiles"],queryFn:()=>api.voiceProfiles(token)});
-  const create=useMutation({mutationFn:async()=>{if(!file||!consent.data)throw new Error("Choose a voice recording first");const form=new FormData();form.append("file",file);form.append("name",name);form.append("purpose",purpose);form.append("language",language);form.append("consent_version",consent.data.version);form.append("ownership_confirmed",String(checks[0]));form.append("single_speaker_confirmed",String(checks[1]));form.append("responsible_use_confirmed",String(checks[2]));return api.createVoice(form,token)},onSuccess:()=>{setFile(null);setChecks([false,false,false]);queryClient.invalidateQueries({queryKey:["voice-profiles"]})}});
-  const revoke=useMutation({mutationFn:(id:string)=>api.revokeVoice(id,token),onSuccess:()=>queryClient.invalidateQueries({queryKey:["voice-profiles"]})});
-  const remove=useMutation({mutationFn:(id:string)=>api.deleteVoice(id,token),onSuccess:()=>queryClient.invalidateQueries({queryKey:["voice-profiles"]})});
-  async function exportSample(id:string,name:string){const blob=await api.exportVoice(id,token);const url=URL.createObjectURL(blob),anchor=document.createElement("a");anchor.href=url;anchor.download=`${name}-voice-sample`;anchor.click();URL.revokeObjectURL(url)}
-  function submit(event:FormEvent){event.preventDefault();create.mutate()}
-  function permanentlyDelete(id:string){if(window.confirm("Permanently delete this voice profile and encrypted recording? This cannot be undone."))remove.mutate(id)}
-  return <section className="voice-page"><header className="voice-head"><div><span className="kicker">MY VOICE · CONSENT FIRST</span><h1>Your voice remains<br/><em>under your control.</em></h1><p>Create a private profile only from a voice you own or are explicitly authorized to use.</p></div><div className="shield-mark"><ShieldCheck/><span>Encrypted<br/>at rest</span></div></header>
-    <div className="voice-grid"><form className="voice-enroll" onSubmit={submit}><div className="section-number">01 · UNDERSTAND THE RISKS</div><h2>{consent.data?.title||"Loading consent disclosure…"}</h2><div className="risk-box"><AlertTriangle/ ><ul>{consent.data?.risks.map(risk=><li key={risk}>{risk}</li>)}</ul></div><div className="section-number">02 · CHOOSE A CLEAN SAMPLE</div><label className="file-drop"><Mic2/><strong>{file?file.name:"Choose a 5–60 second recording"}</strong><small>WAV, MP3, OGG, WebM, or M4A · one speaker · minimal background noise</small><input type="file" accept="audio/wav,audio/mpeg,audio/ogg,audio/webm,audio/mp4" onChange={e=>setFile(e.target.files?.[0]||null)}/></label><div className="voice-fields"><label>Profile name<Input value={name} maxLength={100} onChange={e=>setName(e.target.value)}/></label><label>Language<select value={language} onChange={e=>setLanguage(e.target.value)}><option value="en">English</option><option value="rw">Kinyarwanda</option></select></label></div><label>Purpose<Input value={purpose} maxLength={255} onChange={e=>setPurpose(e.target.value)}/></label><div className="section-number">03 · CONFIRM YOUR AUTHORITY</div><div className="consent-checks">{consent.data?.required_assertions.map((assertion,index)=><label key={assertion}><input type="checkbox" checked={checks[index]} onChange={e=>setChecks(current=>current.map((value,i)=>i===index?e.target.checked:value))}/><span><Check/>{assertion}</span></label>)}</div><Button disabled={!file||checks.some(value=>!value)||create.isPending}>{create.isPending?<LoaderCircle className="spin"/>:<ShieldCheck/>} Create protected profile</Button>{create.error&&<p className="form-error" role="alert">{create.error.message}</p>}</form>
-      <aside className="voice-library"><div className="section-number">YOUR PROFILES</div><h2>Private voice library</h2>{profiles.isLoading&&<p>Loading profiles…</p>}{!profiles.isLoading&&!profiles.data?.items.length&&<div className="voice-empty"><Volume2/><strong>No personal voice yet</strong><p>Your default EVA voices remain available.</p></div>}{profiles.data?.items.map(profile=><article className="voice-card" key={profile.id}><div className="voice-wave"><i/><i/><i/><i/><i/></div><div className="voice-card-title"><div><h3>{profile.name}</h3><p>{profile.purpose}</p></div><span className={profile.status}>{profile.status}</span></div><dl><div><dt>Language</dt><dd>{profile.language==="rw"?"Kinyarwanda":"English"}</dd></div><div><dt>Duration</dt><dd>{String(profile.quality_metadata.duration_seconds||"—")}s</dd></div><div><dt>Consent</dt><dd>{profile.consent_version}</dd></div></dl><div className="voice-actions"><Button variant="outline" size="sm" onClick={()=>exportSample(profile.id,profile.name)}><Download/> Export</Button>{profile.status==="active"&&<Button variant="outline" size="sm" onClick={()=>revoke.mutate(profile.id)}>Revoke</Button>}<Button className="danger-button" variant="ghost" size="icon" onClick={()=>permanentlyDelete(profile.id)} aria-label={`Delete ${profile.name}`}><Trash2/></Button></div></article>)}</aside></div>
-  </section>
+export default function VoicePage() {
+  const token = useAuthStore((s) => s.accessToken)!,
+    queryClient = useQueryClient();
+  const recorder = useRef<MediaRecorder | null>(null),
+    chunks = useRef<Blob[]>([]),
+    timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [file, setFile] = useState<File | null>(null),
+    [name, setName] = useState("Lecturer voice"),
+    [purpose, setPurpose] = useState("Read and explain private study notes"),
+    [language, setLanguage] = useState("en"),
+    [checks, setChecks] = useState([false, false, false]),
+    [recording, setRecording] = useState(false),
+    [seconds, setSeconds] = useState(0),
+    [previewUrl, setPreviewUrl] = useState(""),
+    [savedNotice, setSavedNotice] = useState("");
+  const consent = useQuery({
+    queryKey: ["voice-consent"],
+    queryFn: api.voiceConsent,
+  });
+  const profiles = useQuery({
+    queryKey: ["voice-profiles"],
+    queryFn: () => api.voiceProfiles(token),
+  });
+  const create = useMutation({
+    mutationFn: async () => {
+      if (!file || !consent.data)
+        throw new Error("Choose a voice recording first");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("name", name);
+      form.append("purpose", purpose);
+      form.append("language", language);
+      form.append("consent_version", consent.data.version);
+      form.append("ownership_confirmed", String(checks[0]));
+      form.append("single_speaker_confirmed", String(checks[1]));
+      form.append("responsible_use_confirmed", String(checks[2]));
+      return api.createVoice(form, token);
+    },
+    onSuccess: () => {
+      setFile(null);
+      setPreviewUrl("");
+      setChecks([false, false, false]);
+      setSavedNotice("Protected voice profile created successfully.");
+      queryClient.invalidateQueries({ queryKey: ["voice-profiles"] });
+    },
+  });
+  const revoke = useMutation({
+    mutationFn: (id: string) => api.revokeVoice(id, token),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["voice-profiles"] }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteVoice(id, token),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["voice-profiles"] }),
+  });
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (timer.current) clearInterval(timer.current);
+    recorder.current?.stream.getTracks().forEach((track) => track.stop());
+  }, [previewUrl]);
+  function chooseSample(sample: File | null) {
+    setFile(sample);
+    setSavedNotice("");
+    setPreviewUrl(sample ? URL.createObjectURL(sample) : "");
+  }
+  async function toggleRecording() {
+    if (recording && recorder.current) {
+      recorder.current.stop();
+      setRecording(false);
+      if (timer.current) clearInterval(timer.current);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      recorder.current = mediaRecorder;
+      chunks.current = [];
+      setSeconds(0);
+      setSavedNotice("");
+      mediaRecorder.ondataavailable = (event) => { if (event.data.size) chunks.current.push(event.data); };
+      mediaRecorder.onstop = () => {
+        const type = mediaRecorder.mimeType || "audio/webm";
+        const blob = new Blob(chunks.current, { type });
+        chooseSample(new File([blob], `lecturer-voice-${Date.now()}.webm`, { type }));
+        stream.getTracks().forEach((track) => track.stop());
+      };
+      mediaRecorder.start();
+      setRecording(true);
+      timer.current = setInterval(() => setSeconds((value) => value + 1), 1000);
+    } catch {
+      setSavedNotice("Microphone permission was denied. Allow access or upload an audio file.");
+    }
+  }
+  async function exportSample(id: string, name: string) {
+    const blob = await api.exportVoice(id, token);
+    const url = URL.createObjectURL(blob),
+      anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${name}-voice-sample`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    create.mutate();
+  }
+  function permanentlyDelete(id: string) {
+    if (
+      window.confirm(
+        "Permanently delete this voice profile and encrypted recording? This cannot be undone.",
+      )
+    )
+      remove.mutate(id);
+  }
+  return (
+    <section className="voice-page">
+      <header className="voice-head">
+        <div>
+          <span className="kicker">MY VOICE · CONSENT FIRST</span>
+          <h1>
+            Your voice remains
+            <br />
+            <em>under your control.</em>
+          </h1>
+          <p>
+            Create a private profile only from a voice you own or are explicitly
+            authorized to use.
+          </p>
+        </div>
+        <div className="shield-mark">
+          <ShieldCheck />
+          <span>
+            Encrypted
+            <br />
+            at rest
+          </span>
+        </div>
+      </header>
+      <div className="voice-grid">
+        <form className="voice-enroll" onSubmit={submit}>
+          <div className="section-number">01 · UNDERSTAND THE RISKS</div>
+          <h2>{consent.data?.title || "Loading consent disclosure…"}</h2>
+          <div className="risk-box">
+            <AlertTriangle />
+            <ul>
+              {consent.data?.risks.map((risk) => (
+                <li key={risk}>{risk}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="section-number">02 · CHOOSE A CLEAN SAMPLE</div>
+          <label className="file-drop">
+            <Mic2 />
+            <strong>
+              {file ? file.name : "Choose a 5–60 second recording"}
+            </strong>
+            <small>
+              WAV, MP3, OGG, WebM, or M4A · one speaker · minimal background
+              noise
+            </small>
+            <input
+              type="file"
+              accept="audio/wav,audio/mpeg,audio/ogg,audio/webm,audio/mp4"
+              onChange={(e) => chooseSample(e.target.files?.[0] || null)}
+            />
+          </label>
+          <div className="voice-record-tools">
+            <Button type="button" variant={recording ? "primary" : "outline"} onClick={toggleRecording}>
+              {recording ? <Square /> : <Mic2 />} {recording ? `Stop recording · ${seconds}s` : "Record with microphone"}
+            </Button>
+            {previewUrl && <audio controls src={previewUrl} />}
+          </div>
+          {file && <p className={`sample-duration-hint ${seconds > 0 && seconds < 5 ? "warning" : ""}`}>{seconds > 0 ? `${seconds} second sample` : "Audio selected"} · EVA will verify duration, clarity, silence, and clipping before saving.</p>}
+          <div className="voice-fields">
+            <label>
+              Profile name
+              <Input
+                value={name}
+                maxLength={100}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <label>
+              Language
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+              >
+                <option value="en">English</option>
+                <option value="rw">Kinyarwanda</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Purpose
+            <Input
+              value={purpose}
+              maxLength={255}
+              onChange={(e) => setPurpose(e.target.value)}
+            />
+          </label>
+          <div className="section-number">03 · CONFIRM YOUR AUTHORITY</div>
+          <div className="consent-checks">
+            {consent.data?.required_assertions.map((assertion, index) => (
+              <label key={assertion}>
+                <input
+                  type="checkbox"
+                  checked={checks[index]}
+                  onChange={(e) =>
+                    setChecks((current) =>
+                      current.map((value, i) =>
+                        i === index ? e.target.checked : value,
+                      ),
+                    )
+                  }
+                />
+                <span>
+                  <Check />
+                  {assertion}
+                </span>
+              </label>
+            ))}
+          </div>
+          <Button
+            disabled={
+              !file || checks.some((value) => !value) || create.isPending
+            }
+          >
+            {create.isPending ? (
+              <LoaderCircle className="spin" />
+            ) : (
+              <ShieldCheck />
+            )}{" "}
+            Create protected profile
+          </Button>
+          {create.error && (
+            <p className="form-error" role="alert">
+              {create.error.message}
+            </p>
+          )}
+          {savedNotice && <p className="voice-success" role="status">{savedNotice}</p>}
+        </form>
+        <aside className="voice-library">
+          <div className="section-number">YOUR PROFILES</div>
+          <h2>Private voice library</h2>
+          {profiles.isLoading && <p>Loading profiles…</p>}
+          {!profiles.isLoading && !profiles.data?.items.length && (
+            <div className="voice-empty">
+              <Volume2 />
+              <strong>No personal voice yet</strong>
+              <p>Your default EVA voices remain available.</p>
+            </div>
+          )}
+          {profiles.data?.items.map((profile) => (
+            <article className="voice-card" key={profile.id}>
+              <div className="voice-wave">
+                <i />
+                <i />
+                <i />
+                <i />
+                <i />
+              </div>
+              <div className="voice-card-title">
+                <div>
+                  <h3>{profile.name}</h3>
+                  <p>{profile.purpose}</p>
+                </div>
+                <span className={profile.status}>{profile.status}</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Language</dt>
+                  <dd>
+                    {profile.language === "rw" ? "Kinyarwanda" : "English"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Duration</dt>
+                  <dd>
+                    {String(profile.quality_metadata.duration_seconds || "—")}s
+                  </dd>
+                </div>
+                <div>
+                  <dt>Consent</dt>
+                  <dd>{profile.consent_version}</dd>
+                </div>
+              </dl>
+              <div className="voice-actions">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportSample(profile.id, profile.name)}
+                >
+                  <Download /> Export
+                </Button>
+                {profile.status === "active" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => revoke.mutate(profile.id)}
+                  >
+                    Revoke
+                  </Button>
+                )}
+                <Button
+                  className="danger-button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => permanentlyDelete(profile.id)}
+                  aria-label={`Delete ${profile.name}`}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            </article>
+          ))}
+        </aside>
+      </div>
+    </section>
+  );
 }
