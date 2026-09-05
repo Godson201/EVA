@@ -57,6 +57,17 @@ def test_tts_falls_back_to_second_engine():
     assert calls == ["first", "second"]
 
 
+def test_tts_does_not_block_on_unaccepted_xtts_license():
+    class Working:
+        async def synthesize(self, text, language):
+            return TTSResult(b"audio", "audio/mpeg", "default", "mp3")
+
+    service = UnifiedTTSService(coqui_tos_agreed=False)
+    service.edge = Working()
+    result = asyncio.run(service.synthesize("Read my notes", "en", b"voice sample"))
+    assert result.engine == "default"
+
+
 def test_tts_rejects_invalid_input():
     with pytest.raises(AppError):
         asyncio.run(UnifiedTTSService().synthesize("", "en"))

@@ -72,7 +72,7 @@ async def _synthesize(job_id: str, text: str, language: str, voice_profile_id: s
                         raise ValueError("Active, consented voice profile not found")
                     _, sample_attachment = owned
                     sample = await storage.get_private(sample_attachment.object_key)
-                result = await UnifiedTTSService().synthesize(text, language, sample)
+                result = await UnifiedTTSService(settings.coqui_tos_agreed).synthesize(text, language, sample)
                 object_key = f"users/{job.user_id}/speech/generated/{uuid.uuid4()}.{result.extension}"
                 await storage.put(object_key, result.content, result.content_type)
                 attachment = Attachment(

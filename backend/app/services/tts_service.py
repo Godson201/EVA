@@ -50,7 +50,12 @@ class XTTSEngine:
     _model = None
     _lock = threading.Lock()
 
+    def __init__(self, enabled: bool = False):
+        self.enabled = enabled
+
     def _synthesize(self, text, language, sample):
+        if not self.enabled:
+            raise RuntimeError("XTTS requires explicit acceptance of the Coqui license")
         from TTS.api import TTS
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as sample_handle:
             sample_path = Path(sample_handle.name)
@@ -72,8 +77,8 @@ class XTTSEngine:
 
 
 class UnifiedTTSService:
-    def __init__(self):
-        self.edge, self.gtts, self.xtts = EdgeTTSEngine(), GTTSEngine(), XTTSEngine()
+    def __init__(self, coqui_tos_agreed: bool = False):
+        self.edge, self.gtts, self.xtts = EdgeTTSEngine(), GTTSEngine(), XTTSEngine(coqui_tos_agreed)
 
     async def synthesize(self, text: str, language: str, voice_sample: bytes | None = None) -> TTSResult:
         if language not in {"en", "rw"}:

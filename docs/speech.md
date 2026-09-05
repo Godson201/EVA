@@ -8,7 +8,7 @@ Phase 8 adds asynchronous audio transcription and speech synthesis to the modula
 - Audio is decoded at 16 kHz mono, normalized, and noise-reduced when `noisereduce` is installed.
 - Whisper models are loaded lazily inside the speech worker. English uses `openai/whisper-small`; Kinyarwanda uses `pacomesimon/whisper-small-rw` by default.
 - Automatic detection performs an English first pass and uses EVA's deterministic English/Kinyarwanda detector; a detected Kinyarwanda result is retranscribed with the specialized model. Clients can override this with `en` or `rw`.
-- TTS uses an optional active, consented XTTS voice profile, then Edge TTS, then gTTS. Kinyarwanda currently uses a clearly labelled Swahili voice fallback because those engines do not offer a native Kinyarwanda voice.
+- TTS uses an optional active, consented XTTS voice profile, then Edge TTS, then gTTS. XTTS is enabled only after the operator explicitly accepts its license by setting `EVA_COQUI_TOS_AGREED=true`; otherwise EVA immediately uses its default voice instead of blocking on an interactive license prompt. Kinyarwanda currently uses a clearly labelled Swahili voice fallback because those engines do not offer a native Kinyarwanda voice.
 - Stored audio is never publicly mounted. Downloads require authentication and ownership.
 
 ## Routes
