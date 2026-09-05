@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import io
 import uuid
 from datetime import UTC, datetime
 
@@ -33,6 +35,31 @@ class VoiceQualityService:
     async def analyze(self, content: bytes, suffix: str) -> dict:
         audio, rate = await AudioPreprocessingService().load(content, suffix)
         return self.analyze_samples(audio, rate)
+
+    def prepare_samples(self, audio, rate: int, trim_seconds: float = 50.0):
+        original_duration = len(audio) / rate
+        limit = min(trim_seconds, self.settings.voice_sample_max_seconds)
+        auto_trimmed = original_duration > limit
+        if auto_trimmed:
+            audio = audio[:int(rate * limit)]
+        quality = self.analyze_samples(audio, rate)
+        quality.update({"original_duration_seconds": round(original_duration, 2), "auto_trimmed": auto_trimmed})
+        return audio, quality
+
+    @staticmethod
+    def _wav_bytes(audio, rate: int) -> bytes:
+        import soundfile as sf
+        buffer = io.BytesIO()
+        sf.write(buffer, audio, rate, format="WAV", subtype="PCM_16")
+        return buffer.getvalue()
+
+    async def prepare(self, content: bytes, suffix: str):
+        audio, rate = await AudioPreprocessingService().load(content, suffix)
+        prepared, quality = self.prepare_samples(audio, rate)
+        if not quality["auto_trimmed"]:
+            return content, suffix, quality
+        normalized = await asyncio.to_thread(self._wav_bytes, prepared, rate)
+        return normalized, "wav", quality
 
 
 class VoiceProfileService:

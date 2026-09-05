@@ -39,7 +39,10 @@ async def create_voice_profile(request: Request, file: UploadFile = File(...), n
     content = await file.read(settings.max_audio_bytes + 1); content_type = file.content_type or "application/octet-stream"
     filename = Path(file.filename or "voice.wav").name
     audio_type = AudioPreprocessingService().validate(filename, content_type, content, settings.max_audio_bytes)
-    quality = await VoiceQualityService(settings).analyze(content, audio_type)
+    content, prepared_type, quality = await VoiceQualityService(settings).prepare(content, audio_type)
+    if prepared_type == "wav" and audio_type != "wav":
+        filename = f"{Path(filename).stem}-50s.wav"
+        content_type = "audio/wav"
     object_key = f"users/{user.id}/voices/{uuid.uuid4()}/{filename}.enc"; storage = build_storage_service(settings)
     await storage.put_private(object_key, content, content_type)
     try:

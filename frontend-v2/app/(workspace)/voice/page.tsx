@@ -177,7 +177,7 @@ export default function VoicePage() {
             </strong>
             <small>
               WAV, MP3, OGG, WebM, or M4A · one speaker · minimal background
-              noise
+              noise · samples over 50 seconds are trimmed automatically
             </small>
             <input
               type="file"
@@ -191,7 +191,7 @@ export default function VoicePage() {
             </Button>
             {previewUrl && <audio controls src={previewUrl} />}
           </div>
-          {file && <p className={`sample-duration-hint ${seconds > 0 && seconds < 5 ? "warning" : ""}`}>{seconds > 0 ? `${seconds} second sample` : "Audio selected"} · EVA will verify duration, clarity, silence, and clipping before saving.</p>}
+          {file && <p className={`sample-duration-hint ${seconds > 0 && seconds < 5 ? "warning" : ""}`}>{seconds > 0 ? `${seconds} second sample` : "Audio selected"} · EVA will auto-cut anything over 50 seconds, then verify clarity, silence, and clipping.</p>}
           <div className="voice-fields">
             <label>
               Profile name

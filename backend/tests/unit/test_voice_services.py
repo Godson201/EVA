@@ -39,6 +39,17 @@ def test_voice_quality_rejects_short_and_clipped_samples():
     assert clipped.value.code == "voice_sample_clipping"
 
 
+def test_long_voice_sample_is_automatically_trimmed_to_50_seconds():
+    settings = Settings(environment="test", voice_sample_min_seconds=5, voice_sample_max_seconds=60, _env_file=None)
+    service = VoiceQualityService(settings)
+    audio = np.tile(np.array([0.15, -0.15, 0.08, -0.08], dtype=np.float32), 16_000 * 18)
+    prepared, quality = service.prepare_samples(audio, 16_000)
+    assert len(prepared) == 16_000 * 50
+    assert quality["duration_seconds"] == 50
+    assert quality["original_duration_seconds"] == 72
+    assert quality["auto_trimmed"] is True
+
+
 class MissingSession:
     async def scalar(self, query): return None
 
