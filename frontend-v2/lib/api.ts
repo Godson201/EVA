@@ -1,4 +1,4 @@
-import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentContent, DocumentItem, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, VoiceConsent, VoiceProfile } from "@/types/api";
+import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentAnswer, DocumentContent, DocumentItem, DocumentSource, DocumentSummary, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, VoiceConsent, VoiceProfile } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -74,6 +74,9 @@ export const api = {
   },
   documentJob: (id: string, token: string) => request<ProcessingJob>(`/api/v1/documents/jobs/${id}`, {}, token),
   documentContent: (id: string, token: string) => request<DocumentContent>(`/api/v1/documents/${id}/content`, {}, token),
+  searchDocument: (query: string, documentId: string | null, token: string) => request<DocumentSource[]>("/api/v1/documents/search", { method: "POST", body: JSON.stringify({ query, document_id: documentId, limit: 8 }) }, token),
+  askDocument: (query: string, documentId: string | null, token: string) => request<DocumentAnswer>("/api/v1/documents/ask", { method: "POST", body: JSON.stringify({ query, document_id: documentId, limit: 8 }) }, token),
+  summarizeDocument: (id: string, token: string) => request<DocumentSummary>(`/api/v1/documents/${id}/summary`, { method: "POST" }, token),
   uploadAudio: async (file: File, token: string, language = "auto") => {
     const form = new FormData(); form.append("file", file); form.append("language", language);
     return request<TranscriptionUpload>("/api/v1/speech/transcriptions", { method: "POST", body: form }, token);
