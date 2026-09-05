@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -56,6 +57,7 @@ class XTTSEngine:
     def _synthesize(self, text, language, sample):
         if not self.enabled:
             raise RuntimeError("XTTS requires explicit acceptance of the Coqui license")
+        os.environ["COQUI_TOS_AGREED"] = "1"
         from TTS.api import TTS
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as sample_handle:
             sample_path = Path(sample_handle.name)

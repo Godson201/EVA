@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 
 import pytest
@@ -66,6 +67,16 @@ def test_tts_does_not_block_on_unaccepted_xtts_license():
     service.edge = Working()
     result = asyncio.run(service.synthesize("Read my notes", "en", b"voice sample"))
     assert result.engine == "default"
+
+
+def test_xtts_explicit_consent_is_forwarded_to_coqui(monkeypatch):
+    from app.services.tts_service import XTTSEngine
+
+    monkeypatch.delenv("COQUI_TOS_AGREED", raising=False)
+    monkeypatch.setitem(sys.modules, "TTS.api", None)
+    with pytest.raises(ModuleNotFoundError):
+        XTTSEngine(enabled=True)._synthesize("Hello", "en", b"sample")
+    assert os.environ["COQUI_TOS_AGREED"] == "1"
 
 
 def test_tts_rejects_invalid_input():
