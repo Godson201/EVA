@@ -41,6 +41,19 @@ def test_structured_output_is_validated_and_persisted():
     assert artifact.artifact_type == "summary"
 
 
+def test_unrequested_sections_are_discarded():
+    response = valid_content(summary="Only this", quiz=[{"question": "Not requested", "answer": "No"}])
+    service = StudyService(Session(), LLM([response]), Embeddings())
+    artifact = asyncio.run(service.generate(uuid.uuid4(), StudyGenerate(artifact_type="summary", text="Source")))
+    assert artifact.content["summary"] == "Only this"
+    assert artifact.content["quiz"] == []
+
+
+def test_json_parser_ignores_reasoning_around_first_valid_object():
+    parsed = StudyService._json('analysis {not json}\n```json\n{"summary":"Valid"}\n```')
+    assert parsed == {"summary": "Valid"}
+
+
 def test_invalid_output_retries_once():
     llm = LLM(["not json", valid_content(key_points=["One"])])
     service = StudyService(Session(), llm, Embeddings())

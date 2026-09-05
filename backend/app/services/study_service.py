@@ -22,6 +22,24 @@ TYPE_INSTRUCTIONS = {
     "translation": "Put the translated result in translated_text.",
 }
 
+TYPE_FIELDS = {
+    "summary": "summary", "key_points": "key_points", "short_notes": "notes",
+    "explanation": "explanation", "quiz": "quiz", "flashcards": "flashcards",
+    "vocabulary": "vocabulary", "synonyms": "synonyms", "translation": "translated_text",
+}
+
+TYPE_SCHEMAS = {
+    "summary": '{"summary":"faithful summary"}',
+    "key_points": '{"key_points":["essential fact"]}',
+    "short_notes": '{"notes":["concise revision note"]}',
+    "explanation": '{"explanation":"clear explanation"}',
+    "quiz": '{"quiz":[{"question":"...","options":["..."],"answer":"...","explanation":"...","source_ids":["S1"]}]}',
+    "flashcards": '{"flashcards":[{"front":"...","back":"...","source_ids":["S1"]}]}',
+    "vocabulary": '{"vocabulary":[{"term":"...","definition":"...","synonyms":["..."],"translation":null,"source_ids":["S1"]}]}',
+    "synonyms": '{"synonyms":["useful synonym"]}',
+    "translation": '{"translated_text":"complete translation"}',
+}
+
 
 class StudyService:
     def __init__(self, session: AsyncSession, llm, embeddings):
@@ -30,9 +48,15 @@ class StudyService:
 
     @staticmethod
     def _json(text: str) -> dict:
-        match = re.search(r"\{.*\}", text, re.S)
-        if not match: raise ValueError("No JSON object returned")
-        return json.loads(match.group())
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\{", text):
+            try:
+                value, _ = decoder.raw_decode(text[match.start():])
+                if isinstance(value, dict):
+                    return value
+            except json.JSONDecodeError:
+                continue
+        raise ValueError("No valid JSON object returned")
 
     @staticmethod
     def _has_requested_content(kind: str, content: StudyContent) -> bool:
@@ -66,11 +90,11 @@ class StudyService:
         context, refs = await self._context(user_id, payload)
         allowed_ids = {item["id"] for item in refs}
         language = "Kinyarwanda" if payload.language == "rw" else "English"
-        prompt = (f"Create a {payload.difficulty} {payload.length} study artifact for {payload.audience} in {language}. "
-                  f"{TYPE_INSTRUCTIONS[payload.artifact_type]} Create {payload.count} items when a list is requested. "
-                  "Return only JSON matching: {summary:null,key_points:[],notes:[],explanation:null,quiz:[{question,options,answer,explanation,source_ids:[]}],"
-                  "flashcards:[{front,back,source_ids:[]}],vocabulary:[{term,definition,synonyms,translation,source_ids:[]}],synonyms:[],translated_text:null}. "
-                  "Use only supplied source IDs and do not invent facts.\n\nSOURCE MATERIAL:\n" + context)
+        prompt = (f"Create only a {payload.artifact_type.replace('_', ' ')} for {payload.audience} at "
+                  f"{payload.difficulty} difficulty and {payload.length} length, written in {language}. "
+                  f"{TYPE_INSTRUCTIONS[payload.artifact_type]} Create exactly {payload.count} items when a list is requested. "
+                  f"Return one JSON object with exactly this shape and no other study sections: {TYPE_SCHEMAS[payload.artifact_type]}. "
+                  "Do not include Markdown fences or commentary. Use only supplied source IDs and never invent facts.\n\nSOURCE MATERIAL:\n" + context)
         errors = ""
         for attempt in range(2):
             response = await self.llm.complete([
@@ -81,10 +105,13 @@ class StudyService:
                 content = StudyContent.model_validate(self._json(response))
                 if not self._has_requested_content(payload.artifact_type, content):
                     raise ValueError(f"Missing {payload.artifact_type} content")
+                requested_field = TYPE_FIELDS[payload.artifact_type]
+                content = StudyContent.model_validate({requested_field: getattr(content, requested_field)})
                 break
             except (ValueError, json.JSONDecodeError, ValidationError) as exc:
                 if attempt: raise AppError("invalid_study_output", "The AI provider returned invalid study material", status_code=502) from exc
-                errors = "\nYour previous response was invalid. Correct it and return JSON only."
+                errors = (f"\nYour previous response was invalid. Return only a valid JSON object with exactly "
+                          f"this shape: {TYPE_SCHEMAS[payload.artifact_type]}")
         data = content.model_dump()
         for collection in (data["quiz"], data["flashcards"], data["vocabulary"]):
             for item in collection:
