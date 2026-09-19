@@ -44,7 +44,9 @@ def test_the_ben_is_preserved_as_a_stage_name():
 @pytest.mark.parametrize(("question", "expected"), [
     ("uzi bruse melody?", '"Bruce Melodie" Rwanda singer'),
     ("naho Riderman", "Riderman Rwanda rapper"),
-    ("ese amakuru ya Vestine wo muri Vestina na Dorcas urayazi", '"Vestine and Dorcas" Rwanda gospel duo'),
+    ("Bull Dog uramuzi?", "Bulldogg Rwanda rapper"),
+    ("uzi Bruce Melodie? yaririmbye izihe ndirimbo", '"Bruce Melodie" songs'),
+    ("ese amakuru ya Vestine wo muri Vestina na Dorcas urayazi", '"Vestine and Dorcas" Rwanda latest news'),
 ])
 def test_rwandan_artist_names_are_normalized(question, expected):
     assert GDELTLiveInformationService._query(question) == expected
@@ -86,6 +88,18 @@ def test_music_catalog_returns_exact_song_credit():
     results = asyncio.run(service(handler)._music_catalog_search('"Pom Pom" "Bruce Melodie"'))
     assert results[0].title == "Pom Pom — Bruce Melodie, Diamond Platnumz & Brown Joel"
     assert results[0].url == "https://music.apple.com/us/album/pom-pom/1"
+
+
+def test_musicbrainz_resolves_an_unfamiliar_rwandan_artist():
+    def handler(request):
+        return httpx.Response(200, json={"artists": [{
+            "id": "artist-id", "name": "Bulldogg", "score": 99,
+            "disambiguation": "Rwandan rapper",
+        }]})
+
+    results = asyncio.run(service(handler)._artist_search("Bulldogg Rwanda rapper"))
+    assert results[0].title == "Bulldogg"
+    assert results[0].country == "Rwanda"
 
 
 def test_song_owner_answer_is_direct_and_grounded():

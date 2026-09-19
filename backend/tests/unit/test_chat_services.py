@@ -46,3 +46,13 @@ class GroundingFallbackTests(unittest.TestCase):
         history = [SimpleNamespace(role="user", content="The Ben uramuzi?")]
         query = ChatService._live_search_content("Rwandan musician", history)
         self.assertEqual(query, "The Ben uramuzi? Rwandan musician")
+
+    def test_song_follow_up_keeps_artist_context(self):
+        history = [SimpleNamespace(role="user", content="uzi Bruce Melodie?")]
+        query = ChatService._live_search_content("yaririmbye izihe ndirimbo", history)
+        self.assertEqual(query, "uzi Bruce Melodie? yaririmbye izihe ndirimbo")
+
+    def test_correction_keeps_ambiguous_name_context(self):
+        history = [SimpleNamespace(role="user", content="Bull Dog uramuzi?")]
+        query = ChatService._live_search_content("oya umuririmbyi nyarwanda", history)
+        self.assertEqual(query, "Bull Dog uramuzi? oya umuririmbyi nyarwanda")

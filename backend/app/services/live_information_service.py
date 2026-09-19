@@ -57,6 +57,7 @@ class GDELTLiveInformationService:
         self.rss_url = settings.live_news_rss_url.strip()
         self.knowledge_url = settings.live_knowledge_url.strip()
         self.music_catalog_url = settings.live_music_catalog_url.strip()
+        self.musicbrainz_url = settings.live_musicbrainz_url.strip()
         self.transport = transport
 
     @staticmethod
@@ -72,10 +73,16 @@ class GDELTLiveInformationService:
         if re.search(r"\bvestin(?:e|a)\b", normalized, re.IGNORECASE) and re.search(r"\b(gatanya|divorc\w*)\b", normalized, re.IGNORECASE):
             return '"Ishimwe Vestine" gatanya divorce'
         if re.search(r"\bbru(?:se|ce)\s+melod(?:y|ie)\b", normalized, re.IGNORECASE):
+            if re.search(r"\b(indirimbo|yaririmbye|songs?|tracks?)\b", normalized, re.IGNORECASE):
+                return '"Bruce Melodie" songs'
             return '"Bruce Melodie" Rwanda singer'
+        if re.search(r"\bbull\s*dogg?\b", normalized, re.IGNORECASE):
+            return "Bulldogg Rwanda rapper"
         if re.search(r"\briderman\b", normalized, re.IGNORECASE):
             return "Riderman Rwanda rapper"
         if re.search(r"\bvestin(?:e|a)\b.*\bdorcas\b|\bdorcas\b.*\bvestin(?:e|a)\b", normalized, re.IGNORECASE):
+            if re.search(r"\b(amakuru|news|latest|lastest|recent|update)\b", normalized, re.IGNORECASE):
+                return '"Vestine and Dorcas" Rwanda latest news'
             return '"Vestine and Dorcas" Rwanda gospel duo'
         if re.search(r"\bthe\s+ben\b", normalized, re.IGNORECASE):
             return '"The Ben" Rwanda musician'
@@ -137,6 +144,10 @@ class GDELTLiveInformationService:
                 id=len(sources) + 1, title=title, url=url, domain=domain,
                 published_at=self._rss_published(item.findtext("pubDate")), language="English", country=None, excerpt=None,
             ))
+        low_quality = re.compile(r"citimuzik|trendyhiphop|mp3|download|lyrics?|youtube", re.IGNORECASE)
+        useful_sources = [source for source in sources if not low_quality.search(f"{source.domain} {source.title}")]
+        if useful_sources:
+            sources = useful_sources
         sources.sort(key=lambda source: source.published_at or "", reverse=True)
         return [LiveSource(
             id=index, title=source.title, url=source.url, domain=source.domain,
@@ -170,9 +181,14 @@ class GDELTLiveInformationService:
         return [LiveSource(1, title, url, "en.wikipedia.org", None, "English", None, excerpt)]
 
     async def _music_catalog_search(self, query: str) -> list[LiveSource]:
-        if "pom pom" not in query.casefold():
+        normalized = query.casefold()
+        if "pom pom" in normalized:
+            term, limit = "Pom Pom Bruce Melodie", 5
+        elif "bruce melodie" in normalized and "songs" in normalized:
+            term, limit = "Bruce Melodie", 20
+        else:
             return []
-        params = {"term": "Pom Pom Bruce Melodie", "entity": "song", "limit": 5}
+        params = {"term": term, "entity": "song", "attribute": "artistTerm", "limit": limit}
         try:
             async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, transport=self.transport) as client:
                 response = await client.get(self.music_catalog_url, params=params)
@@ -180,32 +196,64 @@ class GDELTLiveInformationService:
                 results = response.json().get("results", [])
         except (httpx.HTTPError, ValueError, TypeError, AttributeError):
             return []
-        match = next((item for item in results if
-                      str(item.get("trackName", "")).casefold() == "pom pom" and
-                      "bruce melodie" in str(item.get("artistName", "")).casefold()), None)
-        if not match:
+        sources: list[LiveSource] = []
+        seen: set[str] = set()
+        for item in results:
+            track = re.sub(r"\s+", " ", str(item.get("trackName", ""))).strip()
+            artist = re.sub(r"\s+", " ", str(item.get("artistName", ""))).strip()
+            url = self._canonical_url(str(item.get("trackViewUrl", "")))
+            if not track or not artist or not url or "bruce melodie" not in artist.casefold() or track.casefold() in seen:
+                continue
+            if "pom pom" in normalized and track.casefold() != "pom pom":
+                continue
+            seen.add(track.casefold())
+            sources.append(LiveSource(
+                len(sources) + 1, f"{track} — {artist}", url, "music.apple.com",
+                str(item.get("releaseDate") or "") or None, "English", None,
+                f"Track: {track}. Artists: {artist}.",
+            ))
+            if len(sources) >= self.max_results:
+                break
+        return sources
+
+    async def _artist_search(self, query: str) -> list[LiveSource]:
+        params = {"query": query, "fmt": "json", "limit": 8}
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, follow_redirects=True, transport=self.transport,
+                headers={"User-Agent": "EVA/1.0 (https://github.com/Godson201/EVA)"},
+            ) as client:
+                response = await client.get(self.musicbrainz_url, params=params)
+                response.raise_for_status()
+                artists = response.json().get("artists", [])
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError):
             return []
-        artist = re.sub(r"\s+", " ", str(match.get("artistName", ""))).strip()
-        url = self._canonical_url(str(match.get("trackViewUrl", "")))
-        if not artist or not url:
-            return []
-        return [LiveSource(
-            1, f"Pom Pom — {artist}", url, "music.apple.com",
-            str(match.get("releaseDate") or "") or None, "English", None,
-            f"Track: Pom Pom. Artists: {artist}.",
-        )]
+        ranked = sorted(artists, key=lambda item: (
+            "rwand" in str(item.get("disambiguation", "")).casefold() or item.get("country") == "RW",
+            int(item.get("score", 0)),
+        ), reverse=True)
+        for artist in ranked:
+            name = str(artist.get("name", "")).strip()
+            artist_id = str(artist.get("id", "")).strip()
+            description = str(artist.get("disambiguation", "")).strip()
+            if name and artist_id and ("rwand" in description.casefold() or artist.get("country") == "RW"):
+                return [LiveSource(
+                    1, name, f"https://musicbrainz.org/artist/{artist_id}", "musicbrainz.org",
+                    None, "English", "Rwanda", f"Artist: {name}. Description: {description or 'Rwandan musician'}.",
+                )]
+        return []
 
     @staticmethod
     def _public_figure_query(query: str) -> bool:
         return any(name in query.casefold() for name in (
-            "bruce melodie", "riderman", "the ben", "vestine and dorcas", "ishimwe vestine", "pom pom",
+            "bruce melodie", "riderman", "the ben", "vestine and dorcas", "ishimwe vestine", "pom pom", "bulldogg",
         ))
 
     async def _public_figure_search(self, query: str) -> list[LiveSource]:
-        knowledge, catalog, news = await asyncio.gather(
-            self._knowledge_search(query), self._music_catalog_search(query), self._rss_search(query),
+        knowledge, catalog, artist, news = await asyncio.gather(
+            self._knowledge_search(query), self._music_catalog_search(query), self._artist_search(query), self._rss_search(query),
         )
-        combined = catalog + knowledge + news
+        combined = catalog + knowledge + artist + news
         return [LiveSource(
             id=index, title=source.title, url=source.url, domain=source.domain,
             published_at=source.published_at, language=source.language, country=source.country, excerpt=source.excerpt,
@@ -307,7 +355,16 @@ class GDELTLiveInformationService:
         """Render conservative answers for known entities without letting an LLM invent a biography."""
         normalized = content.casefold()
         value = lambda source, key: source.get(key) if isinstance(source, dict) else getattr(source, key)
-        is_rw = language == "rw" or bool(re.search(r"\b(uzi|uramuzi|amakuru|naho|ese|muri|wo|indirimbo|iyande|gatanya)\b", normalized))
+        is_rw = language == "rw" or bool(re.search(r"\b(uzi|uramuzi|urayizi|amakuru|naho|ese|muri|wo|indirimbo|iyande|gatanya)\b", normalized))
+        if "bruce melodie" in normalized and re.search(r"\b(indirimbo|yaririmbye|songs?|tracks?)\b", normalized):
+            tracks = [source for source in sources if value(source, "domain") == "music.apple.com"][:6]
+            if not tracks:
+                return None
+            names = [value(source, "title").split(" — ", 1)[0] for source in tracks]
+            heading = "Zimwe mu ndirimbo za Bruce Melodie zemejwe muri kataloge y’umuziki ni:" if is_rw else "Some verified Bruce Melodie songs are:"
+            return heading + "\n\n" + "\n".join(
+                f"- **{name}** [{value(source, 'id')}]" for name, source in zip(names, tracks)
+            )
         if re.search(r"\bpom\s+pom\b", normalized):
             evidence = next((source for source in sources if all(
                 name in value(source, "title").casefold() for name in ("pom pom", "bruce melodie")
@@ -331,6 +388,9 @@ class GDELTLiveInformationService:
             (("bruse melody", "bruce melody", "bruce melodie"),
              "Yego, ndamuzi. Bruce Melodie ni umuhanzi w'Umunyarwanda.", "Yes. Bruce Melodie is a Rwandan singer."),
             (("riderman",), "Yego, ndamuzi. Riderman ni umuraperi w'Umunyarwanda.", "Yes. Riderman is a Rwandan rapper."),
+            (("bulldogg", "bull dogg", "bull dog"),
+             "Yego, ndamuzi. **Bull Dogg** ni umuraperi w’Umunyarwanda.",
+             "Yes. **Bull Dogg** is a Rwandan rapper."),
             (("vestine", "vestina"),
              "Vestine na Dorcas ni abahanzi b'Abanyarwandakazi bavukana baririmba indirimbo zo kuramya no guhimbaza Imana.",
              "Vestine and Dorcas are Rwandan sisters who perform gospel music."),

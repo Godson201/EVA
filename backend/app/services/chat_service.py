@@ -83,7 +83,8 @@ class ChatService:
         words = re.findall(r"[\w'-]+", content.casefold(), re.UNICODE)
         generic_follow_up = len(words) <= 5 and any(word in {
             "musician", "musicians", "artist", "artists", "singer", "rwandan", "popular",
-            "umuhanzi", "abahanzi", "nyarwanda",
+            "umuhanzi", "abahanzi", "umuririmbyi", "nyarwanda", "indirimbo", "yaririmbye",
+            "izihe", "iyihe", "uwuhe", "oya",
         } for word in words)
         if not generic_follow_up:
             return content
