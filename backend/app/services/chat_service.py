@@ -65,6 +65,12 @@ class ChatService:
             return [{"role": "system", "content": "Live search returned no relevant sources."}], [], True
         return [{"role": "system", "content": self.live_service.context(sources)}], [source.as_dict() for source in sources], True
 
+    def _grounded_live_answer(self, content: str, sources, language: str | None) -> str | None:
+        if self.live_service is None or not sources:
+            return None
+        renderer = getattr(self.live_service, "public_figure_answer", None)
+        return renderer(content, sources, language) if renderer else None
+
     @staticmethod
     def _unverified_response(content: str, language: str | None) -> str:
         is_kinyarwanda = language == "rw" or bool(re.search(r"\b(uzi|amakuru|ni nde|abahanzi|umuhanzi)\b", content.casefold()))
@@ -115,11 +121,14 @@ class ChatService:
         history = await self.repository.recent_messages(conversation.id)
         intent = self.intent_router.classify(content)
         user_message = await self.repository.add_message(conversation.id, "user", content, language=language, intent=intent.value)
-        live_messages, live_sources, live_attempted = await self._live_messages(self._live_search_content(content, history), live_search)
+        search_content = self._live_search_content(content, history)
+        live_messages, live_sources, live_attempted = await self._live_messages(search_content, live_search)
         provider_messages = await self._system_messages(user_id, content) + live_messages + [
             {"role": message.role, "content": message.content} for message in history if message.role in {"user", "assistant"}
         ] + [{"role": "user", "content": content}]
-        answer = self._unverified_response(content, language) if live_attempted and not live_sources else await self.llm.complete(provider_messages)
+        grounded_answer = self._grounded_live_answer(search_content, live_sources, language)
+        answer = (self._unverified_response(content, language) if live_attempted and not live_sources
+                  else grounded_answer or await self.llm.complete(provider_messages))
         assistant = await self.repository.add_message(
             conversation.id, "assistant", answer, language=language, intent=intent.value,
             provider=self.llm.__class__.__name__, model=getattr(self.llm, "model", None),
@@ -137,17 +146,22 @@ class ChatService:
         intent = self.intent_router.classify(content)
         await self.repository.add_message(conversation.id, "user", content, language=language, intent=intent.value)
         await self.session.commit()
-        live_messages, live_sources, live_attempted = await self._live_messages(self._live_search_content(content, history), live_search)
+        search_content = self._live_search_content(content, history)
+        live_messages, live_sources, live_attempted = await self._live_messages(search_content, live_search)
         provider_messages = await self._system_messages(user_id, content) + live_messages + [
             {"role": message.role, "content": message.content} for message in history if message.role in {"user", "assistant"}
         ] + [{"role": "user", "content": content}]
         chunks: list[str] = []
         status = "completed"
         try:
+            grounded_answer = self._grounded_live_answer(search_content, live_sources, language)
             if live_attempted and not live_sources:
                 chunk = self._unverified_response(content, language)
                 chunks.append(chunk)
                 yield chunk
+            elif grounded_answer:
+                chunks.append(grounded_answer)
+                yield grounded_answer
             else:
                 async for chunk in self.llm.stream(provider_messages):
                     chunks.append(chunk)

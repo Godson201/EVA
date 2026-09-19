@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     gdelt_timespan: str = Field(default="1week", pattern=r"^(\d+)(min|h|day|days|week|weeks|month|months)$")
     gdelt_cache_seconds: int = Field(default=300, ge=30, le=3600)
     live_news_rss_url: str = "https://news.google.com/rss/search"
+    live_knowledge_url: str = "https://en.wikipedia.org/w/api.php"
     translation_model: str = "facebook/nllb-200-distilled-600M"
     translation_max_input_chars: int = Field(default=20_000, ge=100, le=100_000)
     redis_url: str = "redis://localhost:6379/0"

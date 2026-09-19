@@ -17,13 +17,13 @@ LIVE_PATTERNS = (
     r"\b(latest|lastest|current|currently|today|tonight|yesterday|this week|breaking|news|headline|trend|trending|update|recent)\b",
     r"\b(politics|political|election|president|government|parliament|war|conflict)\b",
     r"\b(popular|famous|musician|musicians|singer|singers|artist|artists|public figure|who is|do you know)\b",
-    r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko|uzi|uramuzi|muramuzi|umuhanzi|abahanzi|wamamaye)\b",
+    r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko|uzi|uramuzi|muramuzi|naho|umuhanzi|abahanzi|wamamaye)\b",
 )
 STOP_WORDS = {
     "what", "whats", "what's", "is", "are", "the", "a", "an", "about", "tell", "me", "show", "give",
     "please", "latest", "lastest", "current", "currently", "today", "tonight", "this", "week", "news", "headlines",
     "update", "updates", "trending", "trend", "in", "on", "of", "for", "and", "from", "happening",
-    "amakuru", "mashya", "uyu", "munsi", "mbwira", "nyereka", "kuri", "mu", "na", "ya", "uzi", "uramuzi", "muramuzi", "cg",
+    "amakuru", "mashya", "uyu", "munsi", "mbwira", "nyereka", "kuri", "mu", "na", "ya", "uzi", "uramuzi", "muramuzi", "naho", "cg", "ese", "wo", "muri", "urayazi",
     "popular", "famous", "do", "you", "know", "who",
 }
 
@@ -37,6 +37,7 @@ class LiveSource:
     published_at: str | None
     language: str | None
     country: str | None
+    excerpt: str | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -54,6 +55,7 @@ class GDELTLiveInformationService:
         self.timespan = settings.gdelt_timespan
         self.cache_seconds = settings.gdelt_cache_seconds
         self.rss_url = settings.live_news_rss_url.strip()
+        self.knowledge_url = settings.live_knowledge_url.strip()
         self.transport = transport
 
     @staticmethod
@@ -64,6 +66,12 @@ class GDELTLiveInformationService:
     @staticmethod
     def _query(content: str) -> str:
         normalized = re.sub(r"\blastest\b", "latest", content, flags=re.IGNORECASE)
+        if re.search(r"\bbru(?:se|ce)\s+melod(?:y|ie)\b", normalized, re.IGNORECASE):
+            return '"Bruce Melodie" Rwanda singer'
+        if re.search(r"\briderman\b", normalized, re.IGNORECASE):
+            return "Riderman Rwanda rapper"
+        if re.search(r"\bvestin(?:e|a)\b.*\bdorcas\b|\bdorcas\b.*\bvestin(?:e|a)\b", normalized, re.IGNORECASE):
+            return '"Vestine and Dorcas" Rwanda gospel duo'
         if re.search(r"\bthe\s+ben\b", normalized, re.IGNORECASE):
             return '"The Ben" Rwanda musician'
         words = re.findall(r"[\w'-]+", normalized, re.UNICODE)
@@ -122,13 +130,51 @@ class GDELTLiveInformationService:
             seen_titles.add(title_key)
             sources.append(LiveSource(
                 id=len(sources) + 1, title=title, url=url, domain=domain,
-                published_at=self._rss_published(item.findtext("pubDate")), language="English", country=None,
+                published_at=self._rss_published(item.findtext("pubDate")), language="English", country=None, excerpt=None,
             ))
         sources.sort(key=lambda source: source.published_at or "", reverse=True)
         return [LiveSource(
             id=index, title=source.title, url=source.url, domain=source.domain,
-            published_at=source.published_at, language=source.language, country=source.country,
+            published_at=source.published_at, language=source.language, country=source.country, excerpt=source.excerpt,
         ) for index, source in enumerate(sources[:self.max_results], start=1)]
+
+    async def _knowledge_search(self, query: str) -> list[LiveSource]:
+        params = {
+            "action": "query", "generator": "search", "gsrsearch": query, "gsrlimit": 1,
+            "prop": "extracts|info", "exintro": 1, "explaintext": 1, "inprop": "url", "format": "json",
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, follow_redirects=True, transport=self.transport,
+                headers={"User-Agent": "EVA/1.0 (https://github.com/Godson201/EVA)", "Accept": "application/json"},
+            ) as client:
+                response = await client.get(self.knowledge_url, params=params)
+                response.raise_for_status()
+                pages = response.json().get("query", {}).get("pages", {})
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+            return []
+        if not isinstance(pages, dict) or not pages:
+            return []
+        page = next(iter(pages.values()))
+        title = str(page.get("title", "")).strip()
+        excerpt = re.sub(r"\s+", " ", str(page.get("extract", ""))).strip()[:1600]
+        url = self._canonical_url(str(page.get("fullurl", "")))
+        significant = [word.casefold() for word in re.findall(r"[A-Za-z]+", query) if word.casefold() not in STOP_WORDS and len(word) > 3]
+        if not title or not excerpt or not url or (significant and not any(word in title.casefold() for word in significant)):
+            return []
+        return [LiveSource(1, title, url, "en.wikipedia.org", None, "English", None, excerpt)]
+
+    @staticmethod
+    def _public_figure_query(query: str) -> bool:
+        return any(name in query.casefold() for name in ("bruce melodie", "riderman", "the ben", "vestine and dorcas"))
+
+    async def _public_figure_search(self, query: str) -> list[LiveSource]:
+        knowledge, news = await asyncio.gather(self._knowledge_search(query), self._rss_search(query))
+        combined = knowledge + news
+        return [LiveSource(
+            id=index, title=source.title, url=source.url, domain=source.domain,
+            published_at=source.published_at, language=source.language, country=source.country, excerpt=source.excerpt,
+        ) for index, source in enumerate(combined[:self.max_results], start=1)]
 
     async def search(self, content: str) -> list[LiveSource]:
         query = self._query(content)
@@ -137,6 +183,10 @@ class GDELTLiveInformationService:
         cached = self._cache.get(cache_key)
         if cached and loop.time() - cached[0] < self.cache_seconds:
             return cached[1]
+        if self._public_figure_query(query):
+            sources = await self._public_figure_search(query)
+            self._cache[cache_key] = (loop.time(), sources)
+            return sources
         if self.transport is None and loop.time() < self._gdelt_unavailable_until:
             sources = await self._rss_search(query)
             self._cache[cache_key] = (loop.time(), sources)
@@ -190,6 +240,7 @@ class GDELTLiveInformationService:
                 domain=str(article.get("domain") or urlsplit(url).netloc),
                 published_at=self._published(article.get("seendate")),
                 language=article.get("language"), country=article.get("sourcecountry"),
+                excerpt=None,
             ))
             if len(sources) >= self.max_results:
                 break
@@ -204,6 +255,7 @@ class GDELTLiveInformationService:
         rows = [
             f"[{source.id}] {source.title} | publisher={source.domain} | published={source.published_at or 'unknown'} | "
             f"country={source.country or 'unknown'} | url={source.url}"
+            + (f" | verified context={source.excerpt}" if source.excerpt else "")
             for source in sources
         ]
         return (
@@ -214,3 +266,34 @@ class GDELTLiveInformationService:
             "Do not infer details that are absent from a headline. If evidence is insufficient or conflicting, say so.\n\n"
             + "\n".join(rows)
         )
+
+    @staticmethod
+    def public_figure_answer(content: str, sources: list[LiveSource], language: str | None) -> str | None:
+        """Render conservative answers for known entities without letting an LLM invent a biography."""
+        normalized = content.casefold()
+        profiles = (
+            (("bruse melody", "bruce melody", "bruce melodie"),
+             "Bruce Melodie ni umuhanzi w'Umunyarwanda.", "Bruce Melodie is a Rwandan singer."),
+            (("riderman",), "Riderman ni umuraperi w'Umunyarwanda.", "Riderman is a Rwandan rapper."),
+            (("vestine", "vestina"),
+             "Vestine na Dorcas ni abahanzi b'Abanyarwandakazi bavukana baririmba indirimbo zo kuramya no guhimbaza Imana.",
+             "Vestine and Dorcas are Rwandan sisters who perform gospel music."),
+            (("the ben",), "The Ben ni umuhanzi w'Umunyarwanda.", "The Ben is a Rwandan singer."),
+        )
+        profile = next((item for item in profiles if any(name in normalized for name in item[0])), None)
+        if profile is None:
+            return None
+        is_rw = language == "rw" or bool(re.search(r"\b(uzi|uramuzi|amakuru|naho|ese|muri|wo)\b", normalized))
+        intro = profile[1] if is_rw else profile[2]
+        value = lambda source, key: source.get(key) if isinstance(source, dict) else getattr(source, key)
+        knowledge = next((source for source in sources if value(source, "excerpt")), None)
+        intro_citation = f" [{value(knowledge, 'id')}]" if knowledge else ""
+        news = [source for source in sources if value(source, "published_at")][:3]
+        asks_news = bool(re.search(r"\b(amakuru|news|latest|lastest|current|recent|update)\b", normalized))
+        if not news:
+            return intro + intro_citation
+        heading = "Amakuru aheruka nabonye:" if is_rw else "Recent coverage I found:"
+        if not asks_news:
+            heading = "Dore inkuru ziheruka zimuvugaho:" if is_rw else "Here is recent coverage about them:"
+        lines = [f"- {value(source, 'title')} [{value(source, 'id')}]" for source in news]
+        return f"{intro}{intro_citation}\n\n{heading}\n\n" + "\n".join(lines)

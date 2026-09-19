@@ -7,7 +7,7 @@ import pytest
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.services.live_information_service import GDELTLiveInformationService
+from app.services.live_information_service import GDELTLiveInformationService, LiveSource
 
 
 def service(handler):
@@ -26,6 +26,7 @@ def test_detects_current_information_queries_in_both_languages():
     assert GDELTLiveInformationService.should_search("Amakuru mashya ya politiki ni ayahe?")
     assert GDELTLiveInformationService.should_search("Uzi Bruce Melodie cyangwa Riderman?")
     assert GDELTLiveInformationService.should_search("The Ben uramuzi?")
+    assert GDELTLiveInformationService.should_search("Naho Riderman?")
     assert GDELTLiveInformationService.should_search("Who are popular Rwandan musicians?")
     assert not GDELTLiveInformationService.should_search("Explain photosynthesis simply")
 
@@ -36,6 +37,39 @@ def test_common_latest_typo_does_not_pollute_search_query():
 
 def test_the_ben_is_preserved_as_a_stage_name():
     assert GDELTLiveInformationService._query("The Ben uramuzi?") == '"The Ben" Rwanda musician'
+
+
+@pytest.mark.parametrize(("question", "expected"), [
+    ("uzi bruse melody?", '"Bruce Melodie" Rwanda singer'),
+    ("naho Riderman", "Riderman Rwanda rapper"),
+    ("ese amakuru ya Vestine wo muri Vestina na Dorcas urayazi", '"Vestine and Dorcas" Rwanda gospel duo'),
+])
+def test_rwandan_artist_names_are_normalized(question, expected):
+    assert GDELTLiveInformationService._query(question) == expected
+
+
+def test_knowledge_search_uses_identified_client_and_returns_verified_excerpt():
+    def handler(request):
+        assert request.headers["user-agent"].startswith("EVA/1.0")
+        return httpx.Response(200, json={"query": {"pages": {"1": {
+            "title": "Bruce Melodie", "extract": "Bruce Melodie is a Rwandan singer.",
+            "fullurl": "https://en.wikipedia.org/wiki/Bruce_Melodie",
+        }}}})
+
+    results = asyncio.run(service(handler)._knowledge_search('"Bruce Melodie" Rwanda singer'))
+    assert results[0].excerpt == "Bruce Melodie is a Rwandan singer."
+
+
+def test_public_figure_answer_uses_only_verified_profile_and_source_titles():
+    sources = [
+        LiveSource(1, "Bruce Melodie", "https://example.org/bio", "example.org", None, "English", None,
+                   "Bruce Melodie is a Rwandan singer."),
+        LiveSource(2, "Bruce Melodie announces a concert", "https://news.example/story", "news.example",
+                   "2026-09-18T08:00:00+00:00", "English", "Rwanda"),
+    ]
+    answer = GDELTLiveInformationService.public_figure_answer("uzi bruse melody?", sources, "rw")
+    assert answer.startswith("Bruce Melodie ni umuhanzi w'Umunyarwanda. [1]")
+    assert "Bruce Melodie announces a concert [2]" in answer
 
 
 def test_gdelt_results_are_normalized_deduplicated_and_bounded():
