@@ -56,3 +56,8 @@ class GroundingFallbackTests(unittest.TestCase):
         history = [SimpleNamespace(role="user", content="Bull Dog uramuzi?")]
         query = ChatService._live_search_content("oya umuririmbyi nyarwanda", history)
         self.assertEqual(query, "Bull Dog uramuzi? oya umuririmbyi nyarwanda")
+
+    def test_short_general_follow_up_keeps_previous_topic(self):
+        history = [SimpleNamespace(role="user", content="Amakuru mashya y'uburezi mu Rwanda ni ayahe?")]
+        query = ChatService._live_search_content("naho muri Kenya?", history)
+        self.assertEqual(query, "Amakuru mashya y'uburezi mu Rwanda ni ayahe? naho muri Kenya?")

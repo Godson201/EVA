@@ -86,7 +86,11 @@ class ChatService:
             "umuhanzi", "abahanzi", "umuririmbyi", "nyarwanda", "indirimbo", "yaririmbye",
             "izihe", "iyihe", "uwuhe", "oya",
         } for word in words)
-        if not generic_follow_up:
+        contextual_follow_up = len(words) <= 6 and any(word in {
+            "naho", "we", "bo", "yo", "ryo", "ayo", "ibyo", "none", "se", "kandi",
+            "him", "her", "them", "it", "that", "those", "then", "also",
+        } for word in words)
+        if not generic_follow_up and not contextual_follow_up:
             return content
         previous = next((message.content for message in reversed(history) if message.role == "user"), "")
         return f"{previous} {content}".strip() if previous else content

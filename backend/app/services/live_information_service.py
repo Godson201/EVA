@@ -19,6 +19,22 @@ LIVE_PATTERNS = (
     r"\b(popular|famous|musician|musicians|singer|singers|artist|artists|public figure|who is|do you know)\b",
     r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko|uzi|uramuzi|muramuzi|naho|umuhanzi|abahanzi|wamamaye|indirimbo|iyande|gatanya|vestin(?:e|a)|pom pom)\b",
 )
+FACTUAL_QUESTION_PATTERN = re.compile(
+    r"^\s*(who|what|when|where|which|how many|how much|"
+    r"ni nde|ni iki|ni izihe|ni ayahe|ryari|hehe|angahe|ese|mbwira)\b",
+    re.IGNORECASE,
+)
+NON_LOOKUP_PATTERN = re.compile(
+    r"\b(translate|summari[sz]e|rewrite|write|draft|create|generate|explain|calculate|"
+    r"hindura|sobanura|andika|kora incamake)\b",
+    re.IGNORECASE,
+)
+CURRENT_NEWS_PATTERN = re.compile(
+    r"\b(latest|lastest|current|currently|today|tonight|yesterday|this week|breaking|news|"
+    r"headline|trend|trending|update|recent|amakuru|uyu munsi|ibigezweho|amakuru mashya|"
+    r"politiki|amatora|gatanya)\b",
+    re.IGNORECASE,
+)
 STOP_WORDS = {
     "what", "whats", "what's", "is", "are", "the", "a", "an", "about", "tell", "me", "show", "give",
     "please", "latest", "lastest", "current", "currently", "today", "tonight", "this", "week", "news", "headlines",
@@ -63,7 +79,26 @@ class GDELTLiveInformationService:
     @staticmethod
     def should_search(content: str) -> bool:
         normalized = content.casefold()
-        return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in LIVE_PATTERNS)
+        if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in LIVE_PATTERNS):
+            return True
+        return bool(FACTUAL_QUESTION_PATTERN.search(normalized) and not NON_LOOKUP_PATTERN.search(normalized))
+
+    @staticmethod
+    def _merge_sources(*groups: list[LiveSource], limit: int) -> list[LiveSource]:
+        merged: list[LiveSource] = []
+        seen: set[str] = set()
+        for source in (item for group in groups for item in group):
+            key = source.url.casefold() or source.title.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(LiveSource(
+                len(merged) + 1, source.title, source.url, source.domain, source.published_at,
+                source.language, source.country, source.excerpt,
+            ))
+            if len(merged) >= limit:
+                break
+        return merged
 
     @staticmethod
     def _query(content: str) -> str:
@@ -270,6 +305,11 @@ class GDELTLiveInformationService:
             sources = await self._public_figure_search(query)
             self._cache[cache_key] = (loop.time(), sources)
             return sources
+        if not CURRENT_NEWS_PATTERN.search(content):
+            knowledge, news = await asyncio.gather(self._knowledge_search(query), self._rss_search(query))
+            sources = self._merge_sources(knowledge, news, limit=self.max_results)
+            self._cache[cache_key] = (loop.time(), sources)
+            return sources
         if self.transport is None and loop.time() < self._gdelt_unavailable_until:
             sources = await self._rss_search(query)
             self._cache[cache_key] = (loop.time(), sources)
@@ -342,8 +382,8 @@ class GDELTLiveInformationService:
             for source in sources
         ]
         return (
-            f"Today is {today}. The following are live news headline records, not full article text. "
-            "Answer the user's current-information question only with claims supported by these records. "
+            f"Today is {today}. The following are live knowledge records and news headlines. News entries are not full article text. "
+            "Answer the user's factual or current-information question only with claims supported by these records. "
             "Every factual sentence must end with one or more citations such as [1] or [1][2]. "
             "Do not give an uncited factual claim. Distinguish publication time from event time. "
             "Do not infer details that are absent from a headline. If evidence is insufficient or conflicting, say so.\n\n"

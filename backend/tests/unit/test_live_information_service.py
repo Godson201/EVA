@@ -30,7 +30,10 @@ def test_detects_current_information_queries_in_both_languages():
     assert GDELTLiveInformationService.should_search("indirimbo yitwa pom pom ni iyande?")
     assert GDELTLiveInformationService.should_search("Vestina ngo arimo gusaba gatanya?")
     assert GDELTLiveInformationService.should_search("Who are popular Rwandan musicians?")
+    assert GDELTLiveInformationService.should_search("Who is the president of Kenya?")
+    assert GDELTLiveInformationService.should_search("Ni nde uyobora Kenya?")
     assert not GDELTLiveInformationService.should_search("Explain photosynthesis simply")
+    assert not GDELTLiveInformationService.should_search("Write a professional email")
 
 
 def test_common_latest_typo_does_not_pollute_search_query():
@@ -62,6 +65,27 @@ def test_knowledge_search_uses_identified_client_and_returns_verified_excerpt():
 
     results = asyncio.run(service(handler)._knowledge_search('"Bruce Melodie" Rwanda singer'))
     assert results[0].excerpt == "Bruce Melodie is a Rwandan singer."
+
+
+def test_general_factual_question_combines_knowledge_and_recent_coverage():
+    rss = b"""<?xml version="1.0"?><rss><channel><item>
+      <title>Example person appears at public event - Example News</title>
+      <link>https://news.google.com/rss/articles/person</link>
+      <pubDate>Fri, 18 Sep 2026 08:00:00 GMT</pubDate>
+      <source url="https://example.org">Example News</source>
+    </item></channel></rss>"""
+
+    def handler(request):
+        if "wikipedia.org" in request.url.host:
+            return httpx.Response(200, json={"query": {"pages": {"1": {
+                "title": "Example Person", "extract": "Example Person is a public official.",
+                "fullurl": "https://en.wikipedia.org/wiki/Example_Person",
+            }}}})
+        return httpx.Response(200, content=rss)
+
+    results = asyncio.run(service(handler).search("Who is Example Person?"))
+    assert [source.domain for source in results] == ["en.wikipedia.org", "example.org"]
+    assert results[0].excerpt == "Example Person is a public official."
 
 
 def test_public_figure_answer_uses_only_verified_profile_and_source_titles():
