@@ -12,13 +12,13 @@ from app.core.errors import AppError
 
 
 LIVE_PATTERNS = (
-    r"\b(latest|current|currently|today|tonight|yesterday|this week|breaking|news|headline|trend|trending|update|recent)\b",
+    r"\b(latest|lastest|current|currently|today|tonight|yesterday|this week|breaking|news|headline|trend|trending|update|recent)\b",
     r"\b(politics|political|election|president|government|parliament|war|conflict)\b",
     r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko)\b",
 )
 STOP_WORDS = {
     "what", "whats", "what's", "is", "are", "the", "a", "an", "about", "tell", "me", "show", "give",
-    "please", "latest", "current", "currently", "today", "tonight", "this", "week", "news", "headlines",
+    "please", "latest", "lastest", "current", "currently", "today", "tonight", "this", "week", "news", "headlines",
     "update", "updates", "trending", "trend", "in", "on", "of", "for", "and", "from", "happening",
     "amakuru", "mashya", "uyu", "munsi", "mbwira", "nyereka", "kuri", "mu", "na", "ya",
 }
@@ -57,7 +57,8 @@ class GDELTLiveInformationService:
 
     @staticmethod
     def _query(content: str) -> str:
-        words = re.findall(r"[\w'-]+", content, re.UNICODE)
+        normalized = re.sub(r"\blastest\b", "latest", content, flags=re.IGNORECASE)
+        words = re.findall(r"[\w'-]+", normalized, re.UNICODE)
         useful = [word for word in words if word.casefold() not in STOP_WORDS and len(word) > 1]
         return " ".join(useful[:12]) or "Rwanda"
 
@@ -103,6 +104,17 @@ class GDELTLiveInformationService:
                         response = await client.get(self.base_url, params=params)
                     response.raise_for_status()
                     payload = response.json()
+                    articles = payload.get("articles", []) if isinstance(payload, dict) else []
+                    if not articles and self.timespan != "1month":
+                        params["timespan"] = "1month"
+                        if self.transport is None:
+                            await asyncio.sleep(5)
+                        response = await client.get(self.base_url, params=params)
+                        if response.status_code == 429 and self.transport is None:
+                            await asyncio.sleep(5)
+                            response = await client.get(self.base_url, params=params)
+                        response.raise_for_status()
+                        payload = response.json()
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             raise AppError("live_search_unavailable", "Live information is temporarily unavailable", status_code=502) from exc
 

@@ -21,8 +21,13 @@ def service(handler):
 
 def test_detects_current_information_queries_in_both_languages():
     assert GDELTLiveInformationService.should_search("What is the latest education news in Rwanda?")
+    assert GDELTLiveInformationService.should_search("What is the lastest education news in Rwanda?")
     assert GDELTLiveInformationService.should_search("Amakuru mashya ya politiki ni ayahe?")
     assert not GDELTLiveInformationService.should_search("Explain photosynthesis simply")
+
+
+def test_common_latest_typo_does_not_pollute_search_query():
+    assert GDELTLiveInformationService._query("what is lastest news in rwanda education") == "rwanda education"
 
 
 def test_gdelt_results_are_normalized_deduplicated_and_bounded():
@@ -50,3 +55,20 @@ def test_gdelt_failure_has_safe_public_error():
     with pytest.raises(AppError) as error:
         asyncio.run(service(handler).search("news in Rwanda today"))
     assert error.value.code == "live_search_unavailable"
+
+
+def test_empty_week_expands_search_to_one_month():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.params["timespan"])
+        if len(calls) == 1:
+            return httpx.Response(200, json={"articles": []})
+        return httpx.Response(200, json={"articles": [{
+            "title": "Rwanda education programme announced",
+            "url": "https://education.example/rwanda-programme",
+        }]})
+
+    results = asyncio.run(service(handler).search("latest Rwanda education news"))
+    assert calls == ["1week", "1month"]
+    assert len(results) == 1
