@@ -38,12 +38,28 @@ Presentation:
 
 
 class ChatService:
-    def __init__(self, session: AsyncSession, llm, intent_router: IntentRouter | None = None, memory_service=None):
+    def __init__(self, session: AsyncSession, llm, intent_router: IntentRouter | None = None, memory_service=None, live_service=None):
         self.session = session
         self.repository = ConversationRepository(session)
         self.llm = llm
         self.intent_router = intent_router or IntentRouter()
         self.memory_service = memory_service
+        self.live_service = live_service
+
+    async def _live_messages(self, content: str, live_search: bool | None):
+        if self.live_service is None or live_search is False:
+            return [], []
+        if live_search is not True and not self.live_service.should_search(content):
+            return [], []
+        try:
+            sources = await self.live_service.search(content)
+        except AppError:
+            if live_search is True:
+                raise
+            return [{"role": "system", "content": "Live search is temporarily unavailable. Clearly state that current information could not be verified right now."}], []
+        if not sources:
+            return [{"role": "system", "content": "Live search returned no relevant sources. Say that no current evidence was found and do not invent an update."}], []
+        return [{"role": "system", "content": self.live_service.context(sources)}], [source.as_dict() for source in sources]
 
     async def _system_messages(self, user_id: uuid.UUID, content: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": EVA_SYSTEM_PROMPT}]
@@ -71,18 +87,20 @@ class ChatService:
             raise AppError("conversation_not_found", "Conversation not found", status_code=404)
         return conversation
 
-    async def prompt(self, conversation_id: uuid.UUID, user_id: uuid.UUID, content: str, language: str | None):
+    async def prompt(self, conversation_id: uuid.UUID, user_id: uuid.UUID, content: str, language: str | None, live_search: bool | None = None):
         conversation = await self.get_conversation(conversation_id, user_id)
         history = await self.repository.recent_messages(conversation.id)
         intent = self.intent_router.classify(content)
         user_message = await self.repository.add_message(conversation.id, "user", content, language=language, intent=intent.value)
-        provider_messages = await self._system_messages(user_id, content) + [
+        live_messages, live_sources = await self._live_messages(content, live_search)
+        provider_messages = await self._system_messages(user_id, content) + live_messages + [
             {"role": message.role, "content": message.content} for message in history if message.role in {"user", "assistant"}
         ] + [{"role": "user", "content": content}]
         answer = await self.llm.complete(provider_messages)
         assistant = await self.repository.add_message(
             conversation.id, "assistant", answer, language=language, intent=intent.value,
             provider=self.llm.__class__.__name__, model=getattr(self.llm, "model", None),
+            metadata_json={"live_sources": live_sources} if live_sources else {},
         )
         await self.repository.touch(conversation)
         await self.session.commit()
@@ -90,13 +108,14 @@ class ChatService:
         await self.session.refresh(assistant)
         return user_message, assistant
 
-    async def stream_prompt(self, conversation_id: uuid.UUID, user_id: uuid.UUID, content: str, language: str | None) -> AsyncIterator[str]:
+    async def stream_prompt(self, conversation_id: uuid.UUID, user_id: uuid.UUID, content: str, language: str | None, live_search: bool | None = None) -> AsyncIterator[str]:
         conversation = await self.get_conversation(conversation_id, user_id)
         history = await self.repository.recent_messages(conversation.id)
         intent = self.intent_router.classify(content)
         await self.repository.add_message(conversation.id, "user", content, language=language, intent=intent.value)
         await self.session.commit()
-        provider_messages = await self._system_messages(user_id, content) + [
+        live_messages, live_sources = await self._live_messages(content, live_search)
+        provider_messages = await self._system_messages(user_id, content) + live_messages + [
             {"role": message.role, "content": message.content} for message in history if message.role in {"user", "assistant"}
         ] + [{"role": "user", "content": content}]
         chunks: list[str] = []
@@ -116,6 +135,7 @@ class ChatService:
                 conversation.id, "assistant", "".join(chunks).strip(), language=language,
                 intent=intent.value, status=status, provider=self.llm.__class__.__name__,
                 model=getattr(self.llm, "model", None),
+                metadata_json={"live_sources": live_sources} if live_sources else {},
             )
             await self.repository.touch(conversation)
             await self.session.commit()

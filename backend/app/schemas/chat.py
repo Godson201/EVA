@@ -25,6 +25,7 @@ class ConversationRead(BaseModel):
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=50_000)
     language: str | None = Field(default=None, max_length=20)
+    live_search: bool | None = None
 
 
 class MessageRead(BaseModel):
@@ -37,6 +38,7 @@ class MessageRead(BaseModel):
     status: str
     provider: str | None
     model: str | None
+    metadata: dict = Field(default_factory=dict, validation_alias="metadata_json")
     created_at: datetime
 
     model_config = {"from_attributes": True}

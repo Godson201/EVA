@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { ArrowUp, Bot, FileAudio, FilePlus2, FileText, LoaderCircle, Mic, Plus, Sparkles, Square, Volume2 } from "lucide-react";
+import { ArrowUp, Bot, ExternalLink, FileAudio, FilePlus2, FileText, Globe2, LoaderCircle, Mic, Plus, Sparkles, Square, Volume2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
@@ -25,14 +25,14 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   const [audioLanguage, setAudioLanguage] = useState<"rw" | "en">("rw");
   const [audioPreviewUrl, setAudioPreviewUrl] = useState("");
   const [pendingDocument, setPendingDocument] = useState<{ title: string; text: string } | null>(null);
-  const [pendingUser, setPendingUser] = useState(""); const [streamedAnswer, setStreamedAnswer] = useState("");
+  const [pendingUser, setPendingUser] = useState(""); const [streamedAnswer, setStreamedAnswer] = useState(""); const [liveSearch, setLiveSearch] = useState(false);
   const detail = useQuery({ queryKey: ["conversation", conversationId], queryFn: () => api.conversation(conversationId!, token), enabled: !!conversationId });
   const send = useMutation({
     mutationFn: async (content: string) => {
       let id = conversationId;
       if (!id) { const created = await api.createConversation(token, content.slice(0, 52)); id = created.id; setConversationId(id); }
       activeSendId.current = id;
-      await api.streamMessage(id, content, token, (chunk) => setStreamedAnswer((answer) => answer + chunk));
+      await api.streamMessage(id, content, token, (chunk) => setStreamedAnswer((answer) => answer + chunk), liveSearch);
       return { id };
     },
     onSettled: async (result) => {
@@ -113,6 +113,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
       <div className="composer">{pendingDocument && <div className="document-chip"><FileText/><span><strong>{pendingDocument.title}</strong><small>Ready to rewrite and explain</small></span><button type="button" onClick={() => setPendingDocument(null)} aria-label="Remove attached document">×</button></div>}<textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="Message EVA in English or Kinyarwanda…" rows={1} aria-label="Message EVA"/><div className="composer-actions"><div className="media-actions">
         <div className="audio-language" role="group" aria-label="Recording language"><button type="button" className={audioLanguage === "rw" ? "active" : ""} onClick={() => setAudioLanguage("rw")} title="Transcribe in Kinyarwanda">RW</button><button type="button" className={audioLanguage === "en" ? "active" : ""} onClick={() => setAudioLanguage("en")} title="Transcribe in English">EN</button></div>
         <div className="attach-control"><Button type="button" variant="ghost" size="icon" aria-label="Upload a document or audio file" title="Upload file" onClick={() => setAttachmentMenu((open) => !open)}><FilePlus2 size={19}/></Button>{attachmentMenu && <div className="attachment-menu"><button type="button" onClick={() => { setAttachmentMenu(false); documentInput.current?.click(); }}><FileText/> Upload document</button><button type="button" onClick={() => { setAttachmentMenu(false); audioInput.current?.click(); }}><FileAudio/> Upload audio</button></div>}</div>
+        <Button type="button" variant="ghost" size="icon" className={liveSearch ? "live-search-button active" : "live-search-button"} aria-pressed={liveSearch} aria-label="Use live news sources" title="Use live news sources" onClick={() => setLiveSearch(value => !value)}><Globe2 size={19}/></Button>
         <Button type="button" variant="ghost" size="icon" className={recording ? "recording-button" : ""} aria-label={recording ? "Stop recording" : "Record audio"} title={recording ? "Stop recording" : "Record audio"} onClick={toggleRecording}>{recording ? <Square size={16}/> : <Mic size={19}/>}</Button>
       </div><Button size="icon" aria-label="Send message" disabled={(!draft.trim() && !pendingDocument) || send.isPending}><ArrowUp size={19}/></Button></div></div>
       <input ref={documentInput} className="hidden-file-input" type="file" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.tif,.tiff,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/tiff" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadDocument.mutate(file); event.target.value = ""; }}/>
@@ -125,6 +126,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
 function MessageBubble({ message }: { message: Message }) {
   const assistant = message.role === "assistant";
   const [speaking, setSpeaking] = useState(false);
+  const sources = message.metadata?.live_sources || [];
   function listen() {
     if (!("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
@@ -141,6 +143,7 @@ function MessageBubble({ message }: { message: Message }) {
     <div className="message-body">
       <span>{assistant ? "EVA" : "YOU"}</span>
       {assistant ? <MarkdownContent content={message.content}/> : <p>{message.content}</p>}
+      {assistant && sources.length > 0 && <details className="live-sources"><summary>Live sources used ({sources.length})</summary><div>{sources.map(source => <a key={source.url} href={source.url} target="_blank" rel="noreferrer"><span><strong>[{source.id}] {source.title}</strong><small>{source.domain}{source.published_at ? ` · ${new Date(source.published_at).toLocaleString()}` : ""}{source.country ? ` · ${source.country}` : ""}</small></span><ExternalLink size={14}/></a>)}</div></details>}
       {assistant && <button type="button" className={`listen ${speaking ? "speaking" : ""}`} onClick={listen} aria-label={speaking ? "Stop reading response" : "Read response aloud"}><Volume2 size={14}/> {speaking ? "Stop" : "Listen"}</button>}
     </div>
   </article>;

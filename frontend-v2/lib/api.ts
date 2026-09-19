@@ -36,13 +36,13 @@ export const api = {
   conversation: (id: string, token: string) => request<ConversationDetail>(`/api/v1/conversations/${id}`, {}, token),
   createConversation: (token: string, title?: string) => request<Conversation>("/api/v1/conversations", { method: "POST", body: JSON.stringify({ title: title || null }) }, token),
   sendMessage: (id: string, content: string, token: string) => request<ChatResponse>(`/api/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }, token),
-  streamMessage: async (id: string, content: string, token: string, onDelta: (text: string) => void) => {
+  streamMessage: async (id: string, content: string, token: string, onDelta: (text: string) => void, liveSearch?: boolean) => {
     let response: Response;
     try {
       response = await fetch(`${API_URL}/api/v1/conversations/${id}/messages/stream`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, live_search: liveSearch || null }),
       });
     } catch {
       throw new EvaApiError(0, "network_error", "EVA cannot reach the server. Please try again.");

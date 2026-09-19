@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-20b"
     llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
+    live_provider: Literal["none", "gdelt"] = "none"
+    gdelt_base_url: str = "https://api.gdeltproject.org/api/v2/doc/doc"
+    gdelt_timeout_seconds: float = Field(default=20, gt=0, le=60)
+    gdelt_max_results: int = Field(default=8, ge=3, le=20)
+    gdelt_timespan: str = Field(default="1week", pattern=r"^(\d+)(min|h|day|days|week|weeks|month|months)$")
+    gdelt_cache_seconds: int = Field(default=300, ge=30, le=3600)
     translation_model: str = "facebook/nllb-200-distilled-600M"
     translation_max_input_chars: int = Field(default=20_000, ge=100, le=100_000)
     redis_url: str = "redis://localhost:6379/0"

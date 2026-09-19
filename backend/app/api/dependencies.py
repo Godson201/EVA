@@ -15,6 +15,7 @@ from app.services.chat_service import ChatService
 from app.services.llm_service import build_llm_service
 from app.services.embedding_service import HuggingFaceEmbeddingService
 from app.services.memory_service import MemoryService
+from app.services.live_information_service import GDELTLiveInformationService
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,13 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
 async def get_chat_service(request: Request, session: AsyncSession = Depends(get_session)) -> ChatService:
     settings = request.app.state.settings
     memory = MemoryService(session, HuggingFaceEmbeddingService(settings), settings)
-    return ChatService(session, build_llm_service(settings), memory_service=memory)
+    live = None
+    if settings.live_provider == "gdelt":
+        live = getattr(request.app.state, "live_information_service", None)
+        if live is None:
+            live = GDELTLiveInformationService(settings)
+            request.app.state.live_information_service = live
+    return ChatService(session, build_llm_service(settings), memory_service=memory, live_service=live)
 
 
 async def get_memory_service(request: Request, session: AsyncSession = Depends(get_session)) -> MemoryService:

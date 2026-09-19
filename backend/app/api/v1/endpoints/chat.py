@@ -69,7 +69,7 @@ async def send_message(
     user: CurrentUser = Depends(get_current_user),
     service: ChatService = Depends(get_chat_service),
 ):
-    user_message, assistant = await service.prompt(conversation_id, user.id, payload.content.strip(), payload.language)
+    user_message, assistant = await service.prompt(conversation_id, user.id, payload.content.strip(), payload.language, payload.live_search)
     return ChatResponse(user_message=MessageRead.model_validate(user_message), assistant_message=MessageRead.model_validate(assistant))
 
 
@@ -85,7 +85,7 @@ async def stream_message(
 
     async def events():
         try:
-            async for chunk in service.stream_prompt(conversation_id, user.id, payload.content.strip(), payload.language):
+            async for chunk in service.stream_prompt(conversation_id, user.id, payload.content.strip(), payload.language, payload.live_search):
                 yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
             yield "event: done\ndata: {}\n\n"
         except AppError as exc:

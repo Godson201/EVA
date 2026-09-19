@@ -55,14 +55,14 @@ class FakeChatService:
             raise AppError("conversation_not_found", "Conversation not found", status_code=404)
         return item
 
-    async def prompt(self, conversation_id, user_id, content, language):
+    async def prompt(self, conversation_id, user_id, content, language, live_search=None):
         await self.get_conversation(conversation_id, user_id)
-        user_message = record(conversation_id=conversation_id, role="user", content=content, language=language, intent="chat", status="completed", provider=None, model=None)
-        assistant = record(conversation_id=conversation_id, role="assistant", content=f"EVA test response: {content}", language=language, intent="chat", status="completed", provider="DeterministicLLMService", model="deterministic-test")
+        user_message = record(conversation_id=conversation_id, role="user", content=content, language=language, intent="chat", status="completed", provider=None, model=None, metadata_json={})
+        assistant = record(conversation_id=conversation_id, role="assistant", content=f"EVA test response: {content}", language=language, intent="chat", status="completed", provider="DeterministicLLMService", model="deterministic-test", metadata_json={})
         self.repository.message_items.setdefault(conversation_id, []).extend([user_message, assistant])
         return user_message, assistant
 
-    async def stream_prompt(self, conversation_id, user_id, content, language):
+    async def stream_prompt(self, conversation_id, user_id, content, language, live_search=None):
         await self.get_conversation(conversation_id, user_id)
         yield "EVA "
         yield "stream"
@@ -86,6 +86,7 @@ class ChatApiTests(unittest.TestCase):
         response = self.client.post(f"/api/v1/conversations/{conversation_id}/messages", json={"content": "Muraho"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["assistant_message"]["content"], "EVA test response: Muraho")
+        self.assertEqual(response.json()["assistant_message"]["metadata"], {})
 
     def test_cross_user_conversation_is_hidden(self):
         item = record(user_id=OTHER_USER_ID, title="Private", language="en")

@@ -87,6 +87,12 @@ a { color:inherit; text-decoration:none; }
 @keyframes cursor-blink { 50% { opacity:0; } }
 .listen { border:0; background:transparent; margin-top:10px; padding:0; color:var(--muted); display:flex; align-items:center; gap:5px; font-size:11px; cursor:pointer; }
 .listen:hover,.listen.speaking { color:var(--green); }
+.live-search-button.active { color:var(--green); background:#e6eee9; }
+.live-sources { margin-top:13px; border-top:1px solid var(--line); padding-top:10px; }
+.live-sources summary { color:var(--green); font-size:12px; font-weight:700; cursor:pointer; }
+.live-sources>div { display:grid; gap:7px; margin-top:9px; }
+.live-sources a { display:flex; justify-content:space-between; gap:12px; padding:9px 10px; border:1px solid var(--line); border-radius:9px; color:var(--ink); text-decoration:none; background:#faf9f5; }
+.live-sources a:hover { border-color:var(--green); }.live-sources a span { display:grid; gap:3px; }.live-sources a strong { font-size:12px; line-height:1.35; }.live-sources a small { color:var(--muted); font-size:10px; }
 .thinking { height:34px; display:flex; align-items:center; gap:4px; }.thinking i { width:5px;height:5px;border-radius:50%;background:#87918c;animation:pulse 1s infinite alternate; }.thinking i:nth-child(2){animation-delay:.2s}.thinking i:nth-child(3){animation-delay:.4s}@keyframes pulse{to{opacity:.2;transform:translateY(-3px)}}
 .chat-error { color:#a53222; text-align:center; font-size:13px; }
 .composer-wrap { padding:10px max(24px,calc((100% - 820px)/2)) 20px; background:linear-gradient(transparent,var(--surface) 25%); text-align:center; }
