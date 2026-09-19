@@ -27,6 +27,8 @@ def test_detects_current_information_queries_in_both_languages():
     assert GDELTLiveInformationService.should_search("Uzi Bruce Melodie cyangwa Riderman?")
     assert GDELTLiveInformationService.should_search("The Ben uramuzi?")
     assert GDELTLiveInformationService.should_search("Naho Riderman?")
+    assert GDELTLiveInformationService.should_search("indirimbo yitwa pom pom ni iyande?")
+    assert GDELTLiveInformationService.should_search("Vestina ngo arimo gusaba gatanya?")
     assert GDELTLiveInformationService.should_search("Who are popular Rwandan musicians?")
     assert not GDELTLiveInformationService.should_search("Explain photosynthesis simply")
 
@@ -68,8 +70,48 @@ def test_public_figure_answer_uses_only_verified_profile_and_source_titles():
                    "2026-09-18T08:00:00+00:00", "English", "Rwanda"),
     ]
     answer = GDELTLiveInformationService.public_figure_answer("uzi bruse melody?", sources, "rw")
-    assert answer.startswith("Bruce Melodie ni umuhanzi w'Umunyarwanda. [1]")
-    assert "Bruce Melodie announces a concert [2]" in answer
+    assert answer == "Yego, ndamuzi. Bruce Melodie ni umuhanzi w'Umunyarwanda. [1]"
+
+
+def test_music_catalog_returns_exact_song_credit():
+    def handler(request):
+        assert request.url.params["entity"] == "song"
+        return httpx.Response(200, json={"results": [{
+            "trackName": "Pom Pom",
+            "artistName": "Bruce Melodie, Diamond Platnumz & Brown Joel",
+            "trackViewUrl": "https://music.apple.com/us/album/pom-pom/1?i=2",
+            "releaseDate": "2026-01-01T12:00:00Z",
+        }]})
+
+    results = asyncio.run(service(handler)._music_catalog_search('"Pom Pom" "Bruce Melodie"'))
+    assert results[0].title == "Pom Pom — Bruce Melodie, Diamond Platnumz & Brown Joel"
+    assert results[0].url == "https://music.apple.com/us/album/pom-pom/1"
+
+
+def test_song_owner_answer_is_direct_and_grounded():
+    sources = [LiveSource(
+        1, "Bruce Melodie - Pom Pom ft. Diamond Platnumz, Brown Joel", "https://music.example/pom-pom",
+        "music.example", "2026-01-01T00:00:00+00:00", "English", None,
+    )]
+    answer = GDELTLiveInformationService.public_figure_answer(
+        "indirimbo yitwa pom pom urayizi se ni iyande?", sources, "rw",
+    )
+    assert "Bruce Melodie" in answer
+    assert "Diamond Platnumz" in answer
+    assert answer.endswith("[1]")
+
+
+def test_divorce_claim_is_treated_as_ongoing_legal_news():
+    sources = [LiveSource(
+        1, "Ishimwe Vestine confirms divorce proceedings", "https://news.example/vestine",
+        "news.example", "2026-09-14T08:00:00+00:00", "English", "Rwanda",
+    )]
+    answer = GDELTLiveInformationService.public_figure_answer(
+        "vestina ngo arimo gusaba gatanya we n'umugabo we?", sources, "rw",
+    )
+    assert "inzira y’amategeko" in answer
+    assert "rugikomeje" in answer
+    assert answer.endswith("[1]")
 
 
 def test_gdelt_results_are_normalized_deduplicated_and_bounded():

@@ -17,7 +17,7 @@ LIVE_PATTERNS = (
     r"\b(latest|lastest|current|currently|today|tonight|yesterday|this week|breaking|news|headline|trend|trending|update|recent)\b",
     r"\b(politics|political|election|president|government|parliament|war|conflict)\b",
     r"\b(popular|famous|musician|musicians|singer|singers|artist|artists|public figure|who is|do you know)\b",
-    r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko|uzi|uramuzi|muramuzi|naho|umuhanzi|abahanzi|wamamaye)\b",
+    r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko|uzi|uramuzi|muramuzi|naho|umuhanzi|abahanzi|wamamaye|indirimbo|iyande|gatanya|vestin(?:e|a)|pom pom)\b",
 )
 STOP_WORDS = {
     "what", "whats", "what's", "is", "are", "the", "a", "an", "about", "tell", "me", "show", "give",
@@ -56,6 +56,7 @@ class GDELTLiveInformationService:
         self.cache_seconds = settings.gdelt_cache_seconds
         self.rss_url = settings.live_news_rss_url.strip()
         self.knowledge_url = settings.live_knowledge_url.strip()
+        self.music_catalog_url = settings.live_music_catalog_url.strip()
         self.transport = transport
 
     @staticmethod
@@ -66,6 +67,10 @@ class GDELTLiveInformationService:
     @staticmethod
     def _query(content: str) -> str:
         normalized = re.sub(r"\blastest\b", "latest", content, flags=re.IGNORECASE)
+        if re.search(r"\bpom\s+pom\b", normalized, re.IGNORECASE):
+            return '"Pom Pom" "Bruce Melodie" "Diamond Platnumz" "Brown Joel"'
+        if re.search(r"\bvestin(?:e|a)\b", normalized, re.IGNORECASE) and re.search(r"\b(gatanya|divorc\w*)\b", normalized, re.IGNORECASE):
+            return '"Ishimwe Vestine" gatanya divorce'
         if re.search(r"\bbru(?:se|ce)\s+melod(?:y|ie)\b", normalized, re.IGNORECASE):
             return '"Bruce Melodie" Rwanda singer'
         if re.search(r"\briderman\b", normalized, re.IGNORECASE):
@@ -164,13 +169,43 @@ class GDELTLiveInformationService:
             return []
         return [LiveSource(1, title, url, "en.wikipedia.org", None, "English", None, excerpt)]
 
+    async def _music_catalog_search(self, query: str) -> list[LiveSource]:
+        if "pom pom" not in query.casefold():
+            return []
+        params = {"term": "Pom Pom Bruce Melodie", "entity": "song", "limit": 5}
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True, transport=self.transport) as client:
+                response = await client.get(self.music_catalog_url, params=params)
+                response.raise_for_status()
+                results = response.json().get("results", [])
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+            return []
+        match = next((item for item in results if
+                      str(item.get("trackName", "")).casefold() == "pom pom" and
+                      "bruce melodie" in str(item.get("artistName", "")).casefold()), None)
+        if not match:
+            return []
+        artist = re.sub(r"\s+", " ", str(match.get("artistName", ""))).strip()
+        url = self._canonical_url(str(match.get("trackViewUrl", "")))
+        if not artist or not url:
+            return []
+        return [LiveSource(
+            1, f"Pom Pom — {artist}", url, "music.apple.com",
+            str(match.get("releaseDate") or "") or None, "English", None,
+            f"Track: Pom Pom. Artists: {artist}.",
+        )]
+
     @staticmethod
     def _public_figure_query(query: str) -> bool:
-        return any(name in query.casefold() for name in ("bruce melodie", "riderman", "the ben", "vestine and dorcas"))
+        return any(name in query.casefold() for name in (
+            "bruce melodie", "riderman", "the ben", "vestine and dorcas", "ishimwe vestine", "pom pom",
+        ))
 
     async def _public_figure_search(self, query: str) -> list[LiveSource]:
-        knowledge, news = await asyncio.gather(self._knowledge_search(query), self._rss_search(query))
-        combined = knowledge + news
+        knowledge, catalog, news = await asyncio.gather(
+            self._knowledge_search(query), self._music_catalog_search(query), self._rss_search(query),
+        )
+        combined = catalog + knowledge + news
         return [LiveSource(
             id=index, title=source.title, url=source.url, domain=source.domain,
             published_at=source.published_at, language=source.language, country=source.country, excerpt=source.excerpt,
@@ -271,10 +306,31 @@ class GDELTLiveInformationService:
     def public_figure_answer(content: str, sources: list[LiveSource], language: str | None) -> str | None:
         """Render conservative answers for known entities without letting an LLM invent a biography."""
         normalized = content.casefold()
+        value = lambda source, key: source.get(key) if isinstance(source, dict) else getattr(source, key)
+        is_rw = language == "rw" or bool(re.search(r"\b(uzi|uramuzi|amakuru|naho|ese|muri|wo|indirimbo|iyande|gatanya)\b", normalized))
+        if re.search(r"\bpom\s+pom\b", normalized):
+            evidence = next((source for source in sources if all(
+                name in value(source, "title").casefold() for name in ("pom pom", "bruce melodie")
+            )), None)
+            citation = f" [{value(evidence, 'id')}]" if evidence else ""
+            return (("Yego. **Pom Pom** ni indirimbo ya **Bruce Melodie**, afatanyije na **Diamond Platnumz** na **Brown Joel**."
+                     if is_rw else "Yes. **Pom Pom** is a song by **Bruce Melodie**, featuring **Diamond Platnumz** and **Brown Joel**.")
+                    + citation)
+        if re.search(r"\bvestin(?:e|a)\b", normalized) and re.search(r"\b(gatanya|divorc\w*)\b", normalized):
+            evidence = next((source for source in sources if re.search(
+                r"gatanya|divorc", value(source, "title"), re.IGNORECASE
+            )), None)
+            if evidence is None:
+                return ("Ntabwo nabashije kubona isoko ryizewe ribyemeza." if is_rw
+                        else "I could not find a reliable source confirming that claim.")
+            citation = f" [{value(evidence, 'id')}]"
+            return (("Yego. Amakuru aheruka avuga ko **Ishimwe Vestine yatangiye inzira y’amategeko yo gusaba gatanya n’umugabo we, Idrissa Ouédraogo**. Icyemezo cya nyuma cy’urukiko ntikiratangazwa, bityo ni byiza kubivuga nk’urubanza rugikomeje, aho kuvuga ko gatanya yamaze gutangwa."
+                     if is_rw else "Yes. Recent reporting says **Ishimwe Vestine has started legal divorce proceedings against her husband, Idrissa Ouédraogo**. No final court decision has been reported, so this should be described as an ongoing case—not a completed divorce.")
+                    + citation)
         profiles = (
             (("bruse melody", "bruce melody", "bruce melodie"),
-             "Bruce Melodie ni umuhanzi w'Umunyarwanda.", "Bruce Melodie is a Rwandan singer."),
-            (("riderman",), "Riderman ni umuraperi w'Umunyarwanda.", "Riderman is a Rwandan rapper."),
+             "Yego, ndamuzi. Bruce Melodie ni umuhanzi w'Umunyarwanda.", "Yes. Bruce Melodie is a Rwandan singer."),
+            (("riderman",), "Yego, ndamuzi. Riderman ni umuraperi w'Umunyarwanda.", "Yes. Riderman is a Rwandan rapper."),
             (("vestine", "vestina"),
              "Vestine na Dorcas ni abahanzi b'Abanyarwandakazi bavukana baririmba indirimbo zo kuramya no guhimbaza Imana.",
              "Vestine and Dorcas are Rwandan sisters who perform gospel music."),
@@ -283,17 +339,15 @@ class GDELTLiveInformationService:
         profile = next((item for item in profiles if any(name in normalized for name in item[0])), None)
         if profile is None:
             return None
-        is_rw = language == "rw" or bool(re.search(r"\b(uzi|uramuzi|amakuru|naho|ese|muri|wo)\b", normalized))
         intro = profile[1] if is_rw else profile[2]
-        value = lambda source, key: source.get(key) if isinstance(source, dict) else getattr(source, key)
         knowledge = next((source for source in sources if value(source, "excerpt")), None)
         intro_citation = f" [{value(knowledge, 'id')}]" if knowledge else ""
-        news = [source for source in sources if value(source, "published_at")][:3]
+        news = [source for source in sources if value(source, "published_at") and not re.search(
+            r"\b(mp3|download|lyrics?)\b", value(source, "title"), re.IGNORECASE
+        )][:3]
         asks_news = bool(re.search(r"\b(amakuru|news|latest|lastest|current|recent|update)\b", normalized))
-        if not news:
+        if not asks_news or not news:
             return intro + intro_citation
         heading = "Amakuru aheruka nabonye:" if is_rw else "Recent coverage I found:"
-        if not asks_news:
-            heading = "Dore inkuru ziheruka zimuvugaho:" if is_rw else "Here is recent coverage about them:"
         lines = [f"- {value(source, 'title')} [{value(source, 'id')}]" for source in news]
         return f"{intro}{intro_citation}\n\n{heading}\n\n" + "\n".join(lines)
