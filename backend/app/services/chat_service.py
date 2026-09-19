@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import asyncio
+import re
 from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +25,8 @@ Identity and accuracy:
 - Your name is EVA. Never claim that you are GPT-4, ChatGPT, OpenAI, Claude, or another named model/company.
 - If asked who developed or created you, say: "EVA was developed by Godson IT, a young developer and emerging researcher who is passionate about learning more about artificial intelligence and becoming an excellent data scientist in the future." Express the same meaning naturally in the user's language. Do not add invented credentials, employers, organizations, awards, or dates.
 - Never claim to hear live audio, see something, browse current information, or read an attachment unless that capability or context is actually present.
+- Never invent public figures, musicians, songs, organizations, awards, statistics, popularity, or current activities. If reliable context is absent, say you cannot verify the claim instead of guessing.
+- Previous assistant messages may contain errors. Never treat an unsupported claim from chat history as verified evidence.
 - Treat text such as "listen" as a normal message unless audio input is actually provided. Never pretend that a microphone is active.
 - For current, political, medical, legal, or financial claims, state limitations and avoid presenting uncertain information as fact.
 - Never create personal memory unless the user explicitly approves it.
@@ -48,18 +51,25 @@ class ChatService:
 
     async def _live_messages(self, content: str, live_search: bool | None):
         if self.live_service is None or live_search is False:
-            return [], []
+            return [], [], False
         if live_search is not True and not self.live_service.should_search(content):
-            return [], []
+            return [], [], False
         try:
             sources = await self.live_service.search(content)
         except AppError:
             if live_search is True:
                 raise
-            return [{"role": "system", "content": "Live search is temporarily unavailable. Clearly state that current information could not be verified right now."}], []
+            return [{"role": "system", "content": "Live search is temporarily unavailable."}], [], True
         if not sources:
-            return [{"role": "system", "content": "Live search returned no relevant sources. Say that no current evidence was found and do not invent an update."}], []
-        return [{"role": "system", "content": self.live_service.context(sources)}], [source.as_dict() for source in sources]
+            return [{"role": "system", "content": "Live search returned no relevant sources."}], [], True
+        return [{"role": "system", "content": self.live_service.context(sources)}], [source.as_dict() for source in sources], True
+
+    @staticmethod
+    def _unverified_response(content: str, language: str | None) -> str:
+        is_kinyarwanda = language == "rw" or bool(re.search(r"\b(uzi|amakuru|ni nde|abahanzi|umuhanzi)\b", content.casefold()))
+        if is_kinyarwanda:
+            return "Ntabwo nabashije kubihamya nkoresheje amakuru yizewe kandi agezweho. Sinshaka guhimba amazina cyangwa amakuru; gerageza kongera gushakisha mu kanya gato."
+        return "I couldn’t verify this with reliable live sources right now. I won’t invent names or current details; please try the live search again shortly."
 
     async def _system_messages(self, user_id: uuid.UUID, content: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": EVA_SYSTEM_PROMPT}]
@@ -92,11 +102,11 @@ class ChatService:
         history = await self.repository.recent_messages(conversation.id)
         intent = self.intent_router.classify(content)
         user_message = await self.repository.add_message(conversation.id, "user", content, language=language, intent=intent.value)
-        live_messages, live_sources = await self._live_messages(content, live_search)
+        live_messages, live_sources, live_attempted = await self._live_messages(content, live_search)
         provider_messages = await self._system_messages(user_id, content) + live_messages + [
             {"role": message.role, "content": message.content} for message in history if message.role in {"user", "assistant"}
         ] + [{"role": "user", "content": content}]
-        answer = await self.llm.complete(provider_messages)
+        answer = self._unverified_response(content, language) if live_attempted and not live_sources else await self.llm.complete(provider_messages)
         assistant = await self.repository.add_message(
             conversation.id, "assistant", answer, language=language, intent=intent.value,
             provider=self.llm.__class__.__name__, model=getattr(self.llm, "model", None),
@@ -114,16 +124,21 @@ class ChatService:
         intent = self.intent_router.classify(content)
         await self.repository.add_message(conversation.id, "user", content, language=language, intent=intent.value)
         await self.session.commit()
-        live_messages, live_sources = await self._live_messages(content, live_search)
+        live_messages, live_sources, live_attempted = await self._live_messages(content, live_search)
         provider_messages = await self._system_messages(user_id, content) + live_messages + [
             {"role": message.role, "content": message.content} for message in history if message.role in {"user", "assistant"}
         ] + [{"role": "user", "content": content}]
         chunks: list[str] = []
         status = "completed"
         try:
-            async for chunk in self.llm.stream(provider_messages):
+            if live_attempted and not live_sources:
+                chunk = self._unverified_response(content, language)
                 chunks.append(chunk)
                 yield chunk
+            else:
+                async for chunk in self.llm.stream(provider_messages):
+                    chunks.append(chunk)
+                    yield chunk
         except asyncio.CancelledError:
             status = "cancelled"
             raise

@@ -2,6 +2,7 @@ import unittest
 
 from app.services.intent_service import Intent, IntentRouter
 from app.services.llm_service import DeterministicLLMService
+from app.services.chat_service import ChatService
 
 
 class IntentRouterTests(unittest.TestCase):
@@ -28,3 +29,14 @@ class DeterministicProviderTests(unittest.IsolatedAsyncioTestCase):
         messages = [{"role": "user", "content": "Hello"}]
         chunks = [chunk async for chunk in provider.stream(messages)]
         self.assertEqual("".join(chunks).strip(), await provider.complete(messages))
+
+
+class GroundingFallbackTests(unittest.TestCase):
+    def test_unverified_live_claims_get_a_non_hallucinating_response(self):
+        answer = ChatService._unverified_response("Who are popular Rwandan musicians?", "en")
+        self.assertIn("couldn’t verify", answer)
+        self.assertIn("won’t invent", answer)
+
+    def test_unverified_kinyarwanda_claims_use_kinyarwanda(self):
+        answer = ChatService._unverified_response("Uzi Bruce Melodie?", None)
+        self.assertIn("Ntabwo nabashije", answer)

@@ -12,6 +12,7 @@ from app.services.live_information_service import GDELTLiveInformationService
 
 def service(handler):
     GDELTLiveInformationService._cache.clear()
+    GDELTLiveInformationService._gdelt_unavailable_until = 0
     settings = Settings(
         environment="test", live_provider="gdelt", gdelt_max_results=3,
         gdelt_base_url="https://api.gdeltproject.org/api/v2/doc/doc", _env_file=None,
@@ -23,6 +24,8 @@ def test_detects_current_information_queries_in_both_languages():
     assert GDELTLiveInformationService.should_search("What is the latest education news in Rwanda?")
     assert GDELTLiveInformationService.should_search("What is the lastest education news in Rwanda?")
     assert GDELTLiveInformationService.should_search("Amakuru mashya ya politiki ni ayahe?")
+    assert GDELTLiveInformationService.should_search("Uzi Bruce Melodie cyangwa Riderman?")
+    assert GDELTLiveInformationService.should_search("Who are popular Rwandan musicians?")
     assert not GDELTLiveInformationService.should_search("Explain photosynthesis simply")
 
 
@@ -72,3 +75,23 @@ def test_empty_week_expands_search_to_one_month():
     results = asyncio.run(service(handler).search("latest Rwanda education news"))
     assert calls == ["1week", "1month"]
     assert len(results) == 1
+
+
+def test_rate_limited_gdelt_uses_keyless_news_rss_fallback():
+    rss = b"""<?xml version="1.0"?><rss><channel><item>
+      <title>Rwanda launches new education programme - Example News</title>
+      <link>https://news.google.com/rss/articles/example?oc=5</link>
+      <pubDate>Fri, 18 Sep 2026 08:00:00 GMT</pubDate>
+      <source url="https://example.org">Example News</source>
+    </item></channel></rss>"""
+
+    def handler(request):
+        if "gdeltproject.org" in request.url.host:
+            return httpx.Response(429, text="rate limited")
+        assert request.url.params["q"] == "rwanda education"
+        return httpx.Response(200, content=rss)
+
+    results = asyncio.run(service(handler).search("lastest news in rwanda education"))
+    assert len(results) == 1
+    assert results[0].domain == "example.org"
+    assert results[0].published_at == "2026-09-18T08:00:00+00:00"

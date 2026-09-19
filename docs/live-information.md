@@ -19,7 +19,7 @@ Restart the API after editing `.env`. The frontend globe button forces live retr
 
 ## Answer contract
 
-- GDELT results are sorted newest-first, normalized, deduplicated, and cached briefly to respect anonymous rate limits.
+- GDELT results are sorted newest-first, normalized, deduplicated, and cached briefly to respect anonymous rate limits. When GDELT throttles or is unavailable, EVA temporarily switches to a keyless news RSS search instead of leaving the user without current evidence.
 - Only valid HTTP(S) source URLs are retained.
 - The language model receives headline metadata, publisher, publication time, country, and URL. It is instructed not to infer facts absent from those records.
 - Each saved assistant message retains its live-source metadata. The chat UI displays sources in an expandable, owner-visible list.

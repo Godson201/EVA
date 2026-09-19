@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import asyncio
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
@@ -14,13 +16,15 @@ from app.core.errors import AppError
 LIVE_PATTERNS = (
     r"\b(latest|lastest|current|currently|today|tonight|yesterday|this week|breaking|news|headline|trend|trending|update|recent)\b",
     r"\b(politics|political|election|president|government|parliament|war|conflict)\b",
-    r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko)\b",
+    r"\b(popular|famous|musician|musicians|singer|singers|artist|artists|public figure|who is|do you know)\b",
+    r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko|uzi|umuhanzi|abahanzi|wamamaye)\b",
 )
 STOP_WORDS = {
     "what", "whats", "what's", "is", "are", "the", "a", "an", "about", "tell", "me", "show", "give",
     "please", "latest", "lastest", "current", "currently", "today", "tonight", "this", "week", "news", "headlines",
     "update", "updates", "trending", "trend", "in", "on", "of", "for", "and", "from", "happening",
-    "amakuru", "mashya", "uyu", "munsi", "mbwira", "nyereka", "kuri", "mu", "na", "ya",
+    "amakuru", "mashya", "uyu", "munsi", "mbwira", "nyereka", "kuri", "mu", "na", "ya", "uzi", "cg",
+    "popular", "famous", "do", "you", "know", "who",
 }
 
 
@@ -41,6 +45,7 @@ class LiveSource:
 class GDELTLiveInformationService:
     _cache: dict[str, tuple[float, list[LiveSource]]] = {}
     _request_lock = asyncio.Lock()
+    _gdelt_unavailable_until: float = 0
 
     def __init__(self, settings, transport=None):
         self.base_url = settings.gdelt_base_url.strip()
@@ -48,6 +53,7 @@ class GDELTLiveInformationService:
         self.max_results = settings.gdelt_max_results
         self.timespan = settings.gdelt_timespan
         self.cache_seconds = settings.gdelt_cache_seconds
+        self.rss_url = settings.live_news_rss_url.strip()
         self.transport = transport
 
     @staticmethod
@@ -78,6 +84,50 @@ class GDELTLiveInformationService:
         except ValueError:
             return None
 
+    @staticmethod
+    def _rss_published(value: str | None) -> str | None:
+        if not value:
+            return None
+        try:
+            return parsedate_to_datetime(value).astimezone(UTC).isoformat()
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    async def _rss_search(self, query: str) -> list[LiveSource]:
+        params = {"q": query, "hl": "en-RW", "gl": "RW", "ceid": "RW:en"}
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, follow_redirects=True, transport=self.transport,
+                headers={"User-Agent": "EVA-Live-Information/1.0 (news RSS retrieval)"},
+            ) as client:
+                response = await client.get(self.rss_url, params=params)
+                response.raise_for_status()
+            root = ET.fromstring(response.content)
+        except (httpx.HTTPError, ET.ParseError, ValueError, TypeError) as exc:
+            raise AppError("live_search_unavailable", "Live information is temporarily unavailable", status_code=502) from exc
+
+        sources: list[LiveSource] = []
+        seen_titles: set[str] = set()
+        for item in root.findall("./channel/item"):
+            title = re.sub(r"\s+", " ", item.findtext("title") or "").strip()
+            url = self._canonical_url(item.findtext("link") or "")
+            title_key = re.sub(r"\W+", " ", title.casefold()).strip()
+            publisher = item.find("source")
+            publisher_url = publisher.get("url", "") if publisher is not None else ""
+            domain = urlsplit(publisher_url).netloc or (publisher.text if publisher is not None else "") or urlsplit(url).netloc
+            if not title or not url or title_key in seen_titles:
+                continue
+            seen_titles.add(title_key)
+            sources.append(LiveSource(
+                id=len(sources) + 1, title=title, url=url, domain=domain,
+                published_at=self._rss_published(item.findtext("pubDate")), language="English", country=None,
+            ))
+        sources.sort(key=lambda source: source.published_at or "", reverse=True)
+        return [LiveSource(
+            id=index, title=source.title, url=source.url, domain=source.domain,
+            published_at=source.published_at, language=source.language, country=source.country,
+        ) for index, source in enumerate(sources[:self.max_results], start=1)]
+
     async def search(self, content: str) -> list[LiveSource]:
         query = self._query(content)
         cache_key = f"{query.casefold()}|{self.timespan}|{self.max_results}"
@@ -85,6 +135,10 @@ class GDELTLiveInformationService:
         cached = self._cache.get(cache_key)
         if cached and loop.time() - cached[0] < self.cache_seconds:
             return cached[1]
+        if self.transport is None and loop.time() < self._gdelt_unavailable_until:
+            sources = await self._rss_search(query)
+            self._cache[cache_key] = (loop.time(), sources)
+            return sources
         params = {
             "query": query, "mode": "artlist", "format": "json", "sort": "datedesc",
             "maxrecords": self.max_results, "timespan": self.timespan,
@@ -99,9 +153,6 @@ class GDELTLiveInformationService:
                     headers={"User-Agent": "EVA-Live-Information/1.0 (GDELT news retrieval)"},
                 ) as client:
                     response = await client.get(self.base_url, params=params)
-                    if response.status_code == 429 and self.transport is None:
-                        await asyncio.sleep(5)
-                        response = await client.get(self.base_url, params=params)
                     response.raise_for_status()
                     payload = response.json()
                     articles = payload.get("articles", []) if isinstance(payload, dict) else []
@@ -110,13 +161,14 @@ class GDELTLiveInformationService:
                         if self.transport is None:
                             await asyncio.sleep(5)
                         response = await client.get(self.base_url, params=params)
-                        if response.status_code == 429 and self.transport is None:
-                            await asyncio.sleep(5)
-                            response = await client.get(self.base_url, params=params)
                         response.raise_for_status()
                         payload = response.json()
         except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise AppError("live_search_unavailable", "Live information is temporarily unavailable", status_code=502) from exc
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+                self.__class__._gdelt_unavailable_until = loop.time() + 600
+            sources = await self._rss_search(query)
+            self._cache[cache_key] = (loop.time(), sources)
+            return sources
 
         articles = payload.get("articles", []) if isinstance(payload, dict) else []
         sources: list[LiveSource] = []
@@ -139,6 +191,8 @@ class GDELTLiveInformationService:
             ))
             if len(sources) >= self.max_results:
                 break
+        if not sources:
+            sources = await self._rss_search(query)
         self._cache[cache_key] = (loop.time(), sources)
         return sources
 
@@ -151,7 +205,7 @@ class GDELTLiveInformationService:
             for source in sources
         ]
         return (
-            f"Today is {today}. The following are live GDELT headline records, not full article text. "
+            f"Today is {today}. The following are live news headline records, not full article text. "
             "Answer the user's current-information question only with claims supported by these records. "
             "Cite supported statements as [1], [2], etc. Distinguish publication time from event time. "
             "Do not infer details that are absent from a headline. If evidence is insufficient or conflicting, say so.\n\n"
