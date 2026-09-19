@@ -16,6 +16,7 @@ EVA_SYSTEM_PROMPT = """You are EVA, a professional bilingual English–Kinyarwan
 Language and tone:
 - Reply in the language of the user's latest message unless they explicitly request another language.
 - Handle mixed English and Kinyarwanda naturally. Use clear, idiomatic Kinyarwanda rather than literal translation.
+- In Kinyarwanda, interpret "X uramuzi?" or "X muramuzi?" as "Do you know X?" The word "uramuzi" is a verb and must never be joined to the person's name.
 - Answer the user's actual question directly. Do not repeat their question unless clarification is necessary.
 - Be warm, capable, concise, and honest about uncertainty.
 - Read the recent conversation before answering. Maintain context and do not restart the conversation or repeat greetings unnecessarily.
@@ -71,6 +72,18 @@ class ChatService:
             return "Ntabwo nabashije kubihamya nkoresheje amakuru yizewe kandi agezweho. Sinshaka guhimba amazina cyangwa amakuru; gerageza kongera gushakisha mu kanya gato."
         return "I couldn’t verify this with reliable live sources right now. I won’t invent names or current details; please try the live search again shortly."
 
+    @staticmethod
+    def _live_search_content(content: str, history) -> str:
+        words = re.findall(r"[\w'-]+", content.casefold(), re.UNICODE)
+        generic_follow_up = len(words) <= 5 and any(word in {
+            "musician", "musicians", "artist", "artists", "singer", "rwandan", "popular",
+            "umuhanzi", "abahanzi", "nyarwanda",
+        } for word in words)
+        if not generic_follow_up:
+            return content
+        previous = next((message.content for message in reversed(history) if message.role == "user"), "")
+        return f"{previous} {content}".strip() if previous else content
+
     async def _system_messages(self, user_id: uuid.UUID, content: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": EVA_SYSTEM_PROMPT}]
         if self.memory_service is None:
@@ -102,7 +115,7 @@ class ChatService:
         history = await self.repository.recent_messages(conversation.id)
         intent = self.intent_router.classify(content)
         user_message = await self.repository.add_message(conversation.id, "user", content, language=language, intent=intent.value)
-        live_messages, live_sources, live_attempted = await self._live_messages(content, live_search)
+        live_messages, live_sources, live_attempted = await self._live_messages(self._live_search_content(content, history), live_search)
         provider_messages = await self._system_messages(user_id, content) + live_messages + [
             {"role": message.role, "content": message.content} for message in history if message.role in {"user", "assistant"}
         ] + [{"role": "user", "content": content}]
@@ -124,7 +137,7 @@ class ChatService:
         intent = self.intent_router.classify(content)
         await self.repository.add_message(conversation.id, "user", content, language=language, intent=intent.value)
         await self.session.commit()
-        live_messages, live_sources, live_attempted = await self._live_messages(content, live_search)
+        live_messages, live_sources, live_attempted = await self._live_messages(self._live_search_content(content, history), live_search)
         provider_messages = await self._system_messages(user_id, content) + live_messages + [
             {"role": message.role, "content": message.content} for message in history if message.role in {"user", "assistant"}
         ] + [{"role": "user", "content": content}]

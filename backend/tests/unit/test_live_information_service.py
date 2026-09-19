@@ -25,12 +25,17 @@ def test_detects_current_information_queries_in_both_languages():
     assert GDELTLiveInformationService.should_search("What is the lastest education news in Rwanda?")
     assert GDELTLiveInformationService.should_search("Amakuru mashya ya politiki ni ayahe?")
     assert GDELTLiveInformationService.should_search("Uzi Bruce Melodie cyangwa Riderman?")
+    assert GDELTLiveInformationService.should_search("The Ben uramuzi?")
     assert GDELTLiveInformationService.should_search("Who are popular Rwandan musicians?")
     assert not GDELTLiveInformationService.should_search("Explain photosynthesis simply")
 
 
 def test_common_latest_typo_does_not_pollute_search_query():
     assert GDELTLiveInformationService._query("what is lastest news in rwanda education") == "rwanda education"
+
+
+def test_the_ben_is_preserved_as_a_stage_name():
+    assert GDELTLiveInformationService._query("The Ben uramuzi?") == '"The Ben" Rwanda musician'
 
 
 def test_gdelt_results_are_normalized_deduplicated_and_bounded():

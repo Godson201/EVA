@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from app.services.intent_service import Intent, IntentRouter
 from app.services.llm_service import DeterministicLLMService
@@ -40,3 +41,8 @@ class GroundingFallbackTests(unittest.TestCase):
     def test_unverified_kinyarwanda_claims_use_kinyarwanda(self):
         answer = ChatService._unverified_response("Uzi Bruce Melodie?", None)
         self.assertIn("Ntabwo nabashije", answer)
+
+    def test_generic_follow_up_keeps_the_previous_person_context(self):
+        history = [SimpleNamespace(role="user", content="The Ben uramuzi?")]
+        query = ChatService._live_search_content("Rwandan musician", history)
+        self.assertEqual(query, "The Ben uramuzi? Rwandan musician")

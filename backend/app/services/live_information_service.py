@@ -17,13 +17,13 @@ LIVE_PATTERNS = (
     r"\b(latest|lastest|current|currently|today|tonight|yesterday|this week|breaking|news|headline|trend|trending|update|recent)\b",
     r"\b(politics|political|election|president|government|parliament|war|conflict)\b",
     r"\b(popular|famous|musician|musicians|singer|singers|artist|artists|public figure|who is|do you know)\b",
-    r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko|uzi|umuhanzi|abahanzi|wamamaye)\b",
+    r"\b(amakuru|uyu munsi|ibigezweho|amakuru mashya|politiki|amatora|leta|inteko|uzi|uramuzi|muramuzi|umuhanzi|abahanzi|wamamaye)\b",
 )
 STOP_WORDS = {
     "what", "whats", "what's", "is", "are", "the", "a", "an", "about", "tell", "me", "show", "give",
     "please", "latest", "lastest", "current", "currently", "today", "tonight", "this", "week", "news", "headlines",
     "update", "updates", "trending", "trend", "in", "on", "of", "for", "and", "from", "happening",
-    "amakuru", "mashya", "uyu", "munsi", "mbwira", "nyereka", "kuri", "mu", "na", "ya", "uzi", "cg",
+    "amakuru", "mashya", "uyu", "munsi", "mbwira", "nyereka", "kuri", "mu", "na", "ya", "uzi", "uramuzi", "muramuzi", "cg",
     "popular", "famous", "do", "you", "know", "who",
 }
 
@@ -64,6 +64,8 @@ class GDELTLiveInformationService:
     @staticmethod
     def _query(content: str) -> str:
         normalized = re.sub(r"\blastest\b", "latest", content, flags=re.IGNORECASE)
+        if re.search(r"\bthe\s+ben\b", normalized, re.IGNORECASE):
+            return '"The Ben" Rwanda musician'
         words = re.findall(r"[\w'-]+", normalized, re.UNICODE)
         useful = [word for word in words if word.casefold() not in STOP_WORDS and len(word) > 1]
         return " ".join(useful[:12]) or "Rwanda"
@@ -207,7 +209,8 @@ class GDELTLiveInformationService:
         return (
             f"Today is {today}. The following are live news headline records, not full article text. "
             "Answer the user's current-information question only with claims supported by these records. "
-            "Cite supported statements as [1], [2], etc. Distinguish publication time from event time. "
+            "Every factual sentence must end with one or more citations such as [1] or [1][2]. "
+            "Do not give an uncited factual claim. Distinguish publication time from event time. "
             "Do not infer details that are absent from a headline. If evidence is insufficient or conflicting, say so.\n\n"
             + "\n".join(rows)
         )
