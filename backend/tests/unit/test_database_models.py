@@ -11,7 +11,7 @@ class DatabaseModelTests(unittest.TestCase):
     def test_required_v2_tables_are_registered(self):
         expected = {
             "users", "refresh_tokens", "conversations", "messages", "attachments",
-            "documents", "document_chunks", "transcriptions", "translations",
+            "documents", "document_folders", "document_chunks", "transcriptions", "translations",
             "voice_profiles", "memories", "user_preferences", "vocabulary_items", "activity_logs",
             "processing_jobs", "study_artifacts", "call_sessions", "password_reset_tokens",
         }

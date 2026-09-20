@@ -4,14 +4,14 @@ import hashlib
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import CurrentUser, get_current_user
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.repositories.documents import DocumentRepository
-from app.schemas.document import DocumentAnswer, DocumentContent, DocumentList, DocumentRead, DocumentSummary, DocumentUploadResult, ProcessingJobRead, QuestionRequest, SearchHit, SearchRequest
+from app.schemas.document import DocumentAnswer, DocumentContent, DocumentFolderCreate, DocumentFolderRead, DocumentList, DocumentRead, DocumentSummary, DocumentUploadResult, ProcessingJobRead, QuestionRequest, SearchHit, SearchRequest
 from app.services.document_service import DocumentService
 from app.services.embedding_service import HuggingFaceEmbeddingService
 from app.services.job_service import CeleryJobService, create_celery_app
@@ -28,10 +28,12 @@ def _services(request: Request, session: AsyncSession):
 
 @router.post("", response_model=DocumentUploadResult, status_code=202)
 async def upload_document(
-    request: Request, file: UploadFile = File(...), user: CurrentUser = Depends(get_current_user),
+    request: Request, file: UploadFile = File(...), folder_id: uuid.UUID | None = Form(default=None), user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     settings, repository, storage = _services(request, session)
+    if folder_id and await repository.get_folder_owned(folder_id, user.id) is None:
+        raise AppError("folder_not_found", "Study folder not found", status_code=404)
     content = await file.read(settings.max_document_bytes + 1)
     content_type = file.content_type or "application/octet-stream"
     safe_filename = Path(file.filename or "document").name
@@ -42,7 +44,7 @@ async def upload_document(
     committed = False
     try:
         attachment, document, job = await repository.create_upload(
-            user.id, object_key, safe_filename, content_type, len(content), document_type
+            user.id, object_key, safe_filename, content_type, len(content), document_type, folder_id
         )
         attachment.checksum_sha256 = digest
         await session.commit()
@@ -63,6 +65,22 @@ async def upload_document(
         if not committed:
             await storage.delete(object_key)
         raise
+
+
+@router.post("/folders", response_model=DocumentFolderRead, status_code=201)
+async def create_folder(payload: DocumentFolderCreate, user: CurrentUser = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    repository = DocumentRepository(session)
+    folder = await repository.create_folder(user.id, payload.name.strip(), payload.parent_id)
+    if folder is None:
+        raise AppError("parent_folder_not_found", "Parent study folder not found", status_code=404)
+    await session.commit()
+    await session.refresh(folder)
+    return folder
+
+
+@router.get("/folders", response_model=list[DocumentFolderRead])
+async def list_folders(user: CurrentUser = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    return await DocumentRepository(session).list_folders_owned(user.id)
 
 
 @router.get("", response_model=DocumentList)

@@ -14,6 +14,8 @@ class DocumentRead(BaseModel):
     word_count: int
     page_count: int | None
     error_message: str | None
+    folder_id: uuid.UUID | None = None
+    classification: str = "general"
     created_at: datetime
     model_config = {"from_attributes": True}
 
@@ -40,6 +42,19 @@ class ProcessingJobRead(BaseModel):
 class DocumentList(BaseModel):
     items: list[DocumentRead]
     total: int
+
+
+class DocumentFolderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    parent_id: uuid.UUID | None = None
+
+
+class DocumentFolderRead(BaseModel):
+    id: uuid.UUID
+    name: str
+    parent_id: uuid.UUID | None
+    created_at: datetime
+    model_config = {"from_attributes": True}
 
 
 class SearchRequest(BaseModel):

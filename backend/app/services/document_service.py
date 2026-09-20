@@ -31,6 +31,23 @@ class Chunk:
 
 
 class DocumentService:
+    CLASSIFICATION_RULES = (
+        ("cv_resume", ("curriculum vitae", "work experience", "professional experience", "references")),
+        ("assignment", ("assignment", "coursework", "submit", "due date", "student id")),
+        ("research_paper", ("abstract", "methodology", "literature review", "references", "research question")),
+        ("lecture_notes", ("lecture", "module", "learning outcomes", "lesson", "course notes")),
+        ("textbook", ("chapter", "table of contents", "exercises", "edition", "isbn")),
+        ("report", ("executive summary", "findings", "recommendations", "introduction", "conclusion")),
+        ("financial", ("loan", "payment", "interest rate", "balance", "invoice", "budget")),
+    )
+
+    @classmethod
+    def classify(cls, filename: str, text: str) -> str:
+        sample = f"{filename}\n{text[:12000]}".casefold()
+        scored = [(sum(sample.count(keyword) for keyword in keywords), category) for category, keywords in cls.CLASSIFICATION_RULES]
+        score, category = max(scored, key=lambda item: item[0], default=(0, "general"))
+        return category if score else "general"
+
     def validate(self, filename: str, content_type: str, content: bytes, max_bytes: int) -> str:
         if not content or len(content) > max_bytes:
             raise AppError("invalid_document_size", f"Document must be between 1 and {max_bytes} bytes", status_code=413)

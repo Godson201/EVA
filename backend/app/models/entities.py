@@ -94,10 +94,18 @@ class Attachment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (UniqueConstraint("legacy_source", "legacy_id"),)
 
 
+class DocumentFolder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "document_folders"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document_folders.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+
+
 class Document(UUIDPrimaryKeyMixin, LegacyIdentityMixin, TimestampMixin, Base):
     __tablename__ = "documents"
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     attachment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("attachments.id", ondelete="RESTRICT"), unique=True)
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document_folders.id", ondelete="SET NULL"), index=True)
     title: Mapped[str] = mapped_column(String(255))
     document_type: Mapped[str] = mapped_column(String(30))
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
@@ -105,6 +113,7 @@ class Document(UUIDPrimaryKeyMixin, LegacyIdentityMixin, TimestampMixin, Base):
     word_count: Mapped[int] = mapped_column(default=0)
     page_count: Mapped[int | None]
     error_message: Mapped[str | None] = mapped_column(Text)
+    classification: Mapped[str] = mapped_column(String(40), default="general", index=True)
 
 
 class DocumentChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):

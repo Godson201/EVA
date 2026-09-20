@@ -1,4 +1,4 @@
-import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentAnswer, DocumentContent, DocumentItem, DocumentSource, DocumentSummary, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, Translation, TranslationResult, VoiceConsent, VoiceProfile } from "@/types/api";
+import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentAnswer, DocumentContent, DocumentFolder, DocumentItem, DocumentSource, DocumentSummary, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, Translation, TranslationResult, VoiceConsent, VoiceProfile } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -68,10 +68,12 @@ export const api = {
     }
   },
   documents: (token: string) => request<{ items: DocumentItem[]; total: number }>("/api/v1/documents?limit=100", {}, token),
-  uploadDocument: async (file: File, token: string) => {
-    const form = new FormData(); form.append("file", file);
+  uploadDocument: async (file: File, token: string, folderId?: string | null) => {
+    const form = new FormData(); form.append("file", file); if (folderId) form.append("folder_id", folderId);
     return request<DocumentUpload>("/api/v1/documents", { method: "POST", body: form }, token);
   },
+  documentFolders: (token: string) => request<DocumentFolder[]>("/api/v1/documents/folders", {}, token),
+  createDocumentFolder: (name: string, parentId: string | null, token: string) => request<DocumentFolder>("/api/v1/documents/folders", { method: "POST", body: JSON.stringify({ name, parent_id: parentId }) }, token),
   documentJob: (id: string, token: string) => request<ProcessingJob>(`/api/v1/documents/jobs/${id}`, {}, token),
   documentContent: (id: string, token: string) => request<DocumentContent>(`/api/v1/documents/${id}/content`, {}, token),
   searchDocument: (query: string, documentId: string | null, token: string) => request<DocumentSource[]>("/api/v1/documents/search", { method: "POST", body: JSON.stringify({ query, document_id: documentId, limit: 8 }) }, token),

@@ -26,6 +26,23 @@ class DocumentServiceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(AppError):
             self.service.validate("notes.txt", "text/plain", b"12345", 4)
 
+    def test_classifies_common_study_documents(self):
+        self.assertEqual(
+            self.service.classify("networking-notes.pdf", "Lecture 4\nLearning outcomes\nCourse notes"),
+            "lecture_notes",
+        )
+        self.assertEqual(
+            self.service.classify("research.pdf", "Abstract\nMethodology\nResearch question\nLiterature review"),
+            "research_paper",
+        )
+        self.assertEqual(
+            self.service.classify("loan-plan.xlsx", "Loan payment balance and interest rate"),
+            "financial",
+        )
+
+    def test_classification_falls_back_to_general(self):
+        self.assertEqual(self.service.classify("thoughts.txt", "A few personal ideas"), "general")
+
     def test_reports_missing_tesseract_clearly(self):
         import pytesseract
         from PIL import Image

@@ -45,8 +45,9 @@ async def _process(job_id: str) -> dict:
             embeddings = await HuggingFaceEmbeddingService(settings).embed([chunk.content for chunk in chunks], "passage")
             await DocumentRepository(session).replace_chunks(document.id, chunks, embeddings)
             document.extracted_text, document.word_count, document.page_count = cleaned, len(cleaned.split()), extracted.page_count
+            document.classification = extractor.classify(document.title, cleaned)
             document.status, document.error_message = "ready", None
-            job.status, job.progress, job.result = "completed", 100, {"chunks": len(chunks), "words": document.word_count}
+            job.status, job.progress, job.result = "completed", 100, {"chunks": len(chunks), "words": document.word_count, "classification": document.classification}
             await session.commit()
             return job.result
         except Exception as exc:
