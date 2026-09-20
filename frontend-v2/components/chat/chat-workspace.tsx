@@ -15,21 +15,20 @@ const starters = ["Sobanura ingingo ikomeye mu buryo bworoshye", "Mfasha kunoza 
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
-type SpeechRecognitionLike = { lang: string; continuous: boolean; interimResults: boolean; onresult: ((event: SpeechRecognitionEventLike) => void) | null; onerror: (() => void) | null; start: () => void; stop: () => void };
+type SpeechRecognitionLike = { lang: string; continuous: boolean; interimResults: boolean; onresult: ((event: SpeechRecognitionEventLike) => void) | null; onerror: (() => void) | null; onend: (() => void) | null; start: () => void; stop: () => void };
 
 export function ChatWorkspace({ initialId = null }: { initialId?: string | null }) {
   const token = useAuthStore((state) => state.accessToken)!; const user = useAuthStore((state) => state.user)!;
   const router = useRouter();
   const queryClient = useQueryClient(); const [conversationId, setConversationId] = useState<string | null>(initialId); const [draft, setDraft] = useState(""); const end = useRef<HTMLDivElement>(null);
   const documentInput = useRef<HTMLInputElement>(null); const audioInput = useRef<HTMLInputElement>(null);
-  const recorder = useRef<MediaRecorder | null>(null); const recordingChunks = useRef<Blob[]>([]);
-  const speechRecognition = useRef<SpeechRecognitionLike | null>(null); const recordingBaseDraft = useRef(""); const recordingTranscript = useRef(""); const recordedAudioPending = useRef(false);
+  const speechRecognition = useRef<SpeechRecognitionLike | null>(null); const recordingTranscript = useRef(""); const liveSpeechRef = useRef(""); const submitVoiceOnEnd = useRef(false);
   const activeSendId = useRef<string | null>(null);
   const [attachmentMenu, setAttachmentMenu] = useState(false); const [recording, setRecording] = useState(false); const [uploadStatus, setUploadStatus] = useState("");
   const [audioLanguage, setAudioLanguage] = useState<"rw" | "en">("rw");
   const [audioPreviewUrl, setAudioPreviewUrl] = useState("");
   const [pendingDocument, setPendingDocument] = useState<{ title: string; text: string } | null>(null);
-  const [pendingUser, setPendingUser] = useState(""); const [streamedAnswer, setStreamedAnswer] = useState(""); const [liveSearch, setLiveSearch] = useState(false);
+  const [pendingUser, setPendingUser] = useState(""); const [streamedAnswer, setStreamedAnswer] = useState(""); const [liveSearch, setLiveSearch] = useState(false); const [liveSpeech, setLiveSpeech] = useState("");
   const detail = useQuery({ queryKey: ["conversation", conversationId], queryFn: () => api.conversation(conversationId!, token), enabled: !!conversationId });
   const send = useMutation({
     mutationFn: async (content: string) => {
@@ -76,17 +75,11 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
       }
       throw new Error("Audio transcription is taking longer than expected.");
     },
-    onSuccess: (transcription) => {
-      const text = transcription.corrected_text || transcription.raw_text || "";
-      if (recordedAudioPending.current) {
-        const base = recordingBaseDraft.current.trim(); setDraft(base ? `${base}\n${text}` : text); recordedAudioPending.current = false;
-      } else setDraft((current) => current ? `${current}\n${text}` : text);
-      setUploadStatus("EVA rewrote your speech as text. Review it, then press Send.");
-    },
-    onError: (reason) => { recordedAudioPending.current = false; setUploadStatus(reason instanceof Error ? reason.message : "Audio upload failed"); },
+    onSuccess: (transcription) => { const text = transcription.corrected_text || transcription.raw_text || ""; setDraft((current) => current ? `${current}\n${text}` : text); setUploadStatus("Audio transcribed. Review the text, then press Send."); },
+    onError: (reason) => setUploadStatus(reason instanceof Error ? reason.message : "Audio upload failed"),
   });
   const messages = useMemo(() => detail.data?.messages || [], [detail.data?.messages]);
-  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, pendingUser, streamedAnswer]);
+  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, pendingUser, streamedAnswer, liveSpeech]);
   useEffect(() => () => { if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl); }, [audioPreviewUrl]);
   function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -97,41 +90,39 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
       : instruction;
     setDraft(""); setPendingUser(pendingDocument ? `${instruction}\n\n📎 ${pendingDocument.title}` : instruction); setPendingDocument(null); setStreamedAnswer(""); send.mutate(content);
   }
-  function newChat() { setConversationId(null); setDraft(""); setPendingDocument(null); router.push("/chat"); }
+  function newChat() { submitVoiceOnEnd.current = false; liveSpeechRef.current = ""; speechRecognition.current?.stop(); setRecording(false); setLiveSpeech(""); setConversationId(null); setDraft(""); setPendingDocument(null); router.push("/chat"); }
+  function sendVoiceTurn(text: string) {
+    const content = text.trim();
+    if (!content || send.isPending) { if (!content) setUploadStatus("I did not hear any words. Please try again."); return; }
+    setLiveSpeech(""); liveSpeechRef.current = ""; setPendingUser(content); setStreamedAnswer(""); setUploadStatus(""); send.mutate(content);
+  }
   async function toggleRecording() {
-    if (recording && recorder.current) {
-      speechRecognition.current?.stop(); recorder.current.stop(); setRecording(false);
-      setUploadStatus("Improving your transcript..."); return;
+    if (recording && speechRecognition.current) {
+      submitVoiceOnEnd.current = true; speechRecognition.current.stop(); setRecording(false);
+      setUploadStatus("Sending your voice message to EVA..."); return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream); recorder.current = mediaRecorder; recordingChunks.current = [];
-      recordingBaseDraft.current = draft; recordingTranscript.current = "";
       const browser = window as typeof window & { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike };
       const Recognition = browser.SpeechRecognition || browser.webkitSpeechRecognition;
-      if (Recognition) {
-        const recognition = new Recognition(); speechRecognition.current = recognition;
-        recognition.lang = audioLanguage === "rw" ? "rw-RW" : "en-US"; recognition.continuous = true; recognition.interimResults = true;
-        recognition.onresult = (event) => {
-          let finalText = recordingTranscript.current; let interimText = "";
-          for (let index = event.resultIndex; index < event.results.length; index++) {
-            const result = event.results[index];
-            if (result.isFinal) finalText += `${result[0].transcript.trim()} `; else interimText += result[0].transcript;
-          }
-          recordingTranscript.current = finalText;
-          const spoken = `${finalText}${interimText}`.trim(); const base = recordingBaseDraft.current.trim();
-          setDraft(base && spoken ? `${base}\n${spoken}` : base || spoken);
-        };
-        recognition.onerror = () => setUploadStatus("Live preview paused. EVA will transcribe the saved recording when you stop.");
-        recognition.start();
-      }
-      mediaRecorder.ondataavailable = (event) => { if (event.data.size) recordingChunks.current.push(event.data); };
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(recordingChunks.current, { type: mediaRecorder.mimeType || "audio/webm" }); stream.getTracks().forEach((track) => track.stop());
-        recordedAudioPending.current = true; transcribeAudio.mutate(new File([blob], `eva-recording-${Date.now()}.webm`, { type: blob.type }));
+      if (!Recognition) { setUploadStatus("Live speech is not supported by this browser. Use Chrome or Edge, or upload an audio file."); return; }
+      recordingTranscript.current = ""; liveSpeechRef.current = ""; submitVoiceOnEnd.current = false; setLiveSpeech("");
+      const recognition = new Recognition(); speechRecognition.current = recognition;
+      recognition.lang = audioLanguage === "rw" ? "rw-RW" : "en-US"; recognition.continuous = true; recognition.interimResults = true;
+      recognition.onresult = (event) => {
+        let finalText = recordingTranscript.current; let interimText = "";
+        for (let index = event.resultIndex; index < event.results.length; index++) {
+          const result = event.results[index];
+          if (result.isFinal) finalText += `${result[0].transcript.trim()} `; else interimText += result[0].transcript;
+        }
+        recordingTranscript.current = finalText;
+        const spoken = `${finalText}${interimText}`.trim(); liveSpeechRef.current = spoken; setLiveSpeech(spoken);
       };
-      mediaRecorder.start(500); setRecording(true);
-      setUploadStatus(Recognition ? "Listening live... your words will appear here. Select Stop when finished." : "Recording... select Stop to transcribe your speech.");
+      recognition.onerror = () => { setRecording(false); setUploadStatus("EVA could not continue listening. Check microphone permission and try again."); };
+      recognition.onend = () => {
+        const shouldSubmit = submitVoiceOnEnd.current || Boolean(liveSpeechRef.current.trim()); submitVoiceOnEnd.current = false; speechRecognition.current = null; setRecording(false);
+        if (shouldSubmit) sendVoiceTurn(liveSpeechRef.current);
+      };
+      recognition.start(); setRecording(true); setUploadStatus("Listening live... Select Stop and EVA will answer immediately.");
     } catch { setUploadStatus("Microphone access was denied. Allow microphone permission and try again."); }
   }
   return <section className="chat-shell">
@@ -139,6 +130,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
     <div className="message-scroll">
       {!conversationId && <div className="welcome"><div className="welcome-symbol"><Bot size={34}/></div><span className="kicker">UMUFASHA WAWE MU KINYARWANDA NO MU CYONGEREZA</span><h1>Muraho, {user.full_name?.split(" ")[0] || user.username}.</h1><p>Ni iki wifuza kumenya, gukora cyangwa guhindura uyu munsi?</p><div className="starter-grid">{starters.map((item, index) => <button key={item} onClick={() => setDraft(item)}><span>0{index + 1}</span>{item}<ArrowUp size={15}/></button>)}</div></div>}
       {messages.map((message) => <MessageBubble key={message.id} message={message}/>)}
+      {recording && <article className="message user voice-live"><div className="message-body"><span><Mic size={12}/> LIVE VOICE</span><p>{liveSpeech || "Listening..."}</p><div className="voice-live-wave"><i/><i/><i/><i/><i/></div></div></article>}
       {pendingUser && <article className="message user pending-message"><div className="message-body"><span>YOU</span><p>{pendingUser}</p></div></article>}
       {send.isPending && <article className="message assistant streaming-message"><div className="message-icon"><Sparkles size={16}/></div><div className="message-body"><span>EVA</span>{streamedAnswer ? <MarkdownContent content={streamedAnswer}/> : <div className="thinking"><i/><i/><i/></div>}</div></article>}
       {send.error && <p className="chat-error" role="alert">{send.error.message}</p>}<div ref={end}/>
