@@ -6,7 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-StudyType = Literal["summary", "key_points", "short_notes", "explanation", "quiz", "flashcards", "vocabulary", "synonyms", "translation"]
+StudyType = Literal[
+    "summary", "key_points", "short_notes", "explanation", "quiz", "flashcards", "vocabulary", "synonyms", "translation",
+    "concept_map", "study_plan", "essay_outline", "true_false", "fill_blanks",
+]
 
 
 class QuizItem(BaseModel):

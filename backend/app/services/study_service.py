@@ -20,12 +20,18 @@ TYPE_INSTRUCTIONS = {
     "vocabulary": "Extract important terms with definitions, synonyms, translation when useful, and source_ids.",
     "synonyms": "Put useful synonyms for the supplied term or phrase in synonyms.",
     "translation": "Put the translated result in translated_text.",
+    "concept_map": "Put a hierarchical concept map in notes, showing parent ideas and their relationships.",
+    "study_plan": "Put a practical step-by-step revision plan in notes.",
+    "essay_outline": "Put a structured essay outline with thesis, sections, evidence, and conclusion in notes.",
+    "true_false": "Create true-or-false questions in quiz. Put True and False in options and explain every answer.",
+    "fill_blanks": "Create fill-in-the-blank questions in quiz and put the missing term in answer.",
 }
 
 TYPE_FIELDS = {
     "summary": "summary", "key_points": "key_points", "short_notes": "notes",
     "explanation": "explanation", "quiz": "quiz", "flashcards": "flashcards",
     "vocabulary": "vocabulary", "synonyms": "synonyms", "translation": "translated_text",
+    "concept_map": "notes", "study_plan": "notes", "essay_outline": "notes", "true_false": "quiz", "fill_blanks": "quiz",
 }
 
 TYPE_SCHEMAS = {
@@ -38,6 +44,11 @@ TYPE_SCHEMAS = {
     "vocabulary": '{"vocabulary":[{"term":"...","definition":"...","synonyms":["..."],"translation":null,"source_ids":["S1"]}]}',
     "synonyms": '{"synonyms":["useful synonym"]}',
     "translation": '{"translated_text":"complete translation"}',
+    "concept_map": '{"notes":["Main concept -> related concept -> supporting detail"]}',
+    "study_plan": '{"notes":["Day or step: learning goal and activity"]}',
+    "essay_outline": '{"notes":["Section: argument and supporting evidence"]}',
+    "true_false": '{"quiz":[{"question":"Statement","options":["True","False"],"answer":"True","explanation":"...","source_ids":["S1"]}]}',
+    "fill_blanks": '{"quiz":[{"question":"Complete: ... ____ ...","options":[],"answer":"missing term","explanation":"...","source_ids":["S1"]}]}',
 }
 
 
@@ -64,6 +75,8 @@ class StudyService:
             "summary": content.summary, "key_points": content.key_points, "short_notes": content.notes,
             "explanation": content.explanation, "quiz": content.quiz, "flashcards": content.flashcards,
             "vocabulary": content.vocabulary, "synonyms": content.synonyms, "translation": content.translated_text,
+            "concept_map": content.notes, "study_plan": content.notes, "essay_outline": content.notes,
+            "true_false": content.quiz, "fill_blanks": content.quiz,
         }
         return bool(values[kind])
 

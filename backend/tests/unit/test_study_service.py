@@ -68,6 +68,19 @@ def test_invalid_output_after_retry_is_reported():
     assert error.value.code == "invalid_study_output"
 
 
+@pytest.mark.parametrize(("artifact_type", "field"), [
+    ("concept_map", "notes"), ("study_plan", "notes"), ("essay_outline", "notes"),
+    ("true_false", "quiz"), ("fill_blanks", "quiz"),
+])
+def test_extended_study_formats_are_supported(artifact_type, field):
+    content = valid_content(**({"notes": ["Structured item"]} if field == "notes" else {
+        "quiz": [{"question": "Practice?", "options": ["True", "False"], "answer": "True", "explanation": "Because", "source_ids": []}]
+    }))
+    service = StudyService(Session(), LLM([content]), Embeddings())
+    artifact = asyncio.run(service.generate(uuid.uuid4(), StudyGenerate(artifact_type=artifact_type, text="Source material")))
+    assert artifact.content[field]
+
+
 def test_document_question_gets_traceable_source():
     output = valid_content(quiz=[{"question": "Q?", "options": [], "answer": "A", "explanation": "E", "source_ids": ["invented"]}])
     service = StudyService(Session(), LLM([output]), Embeddings())

@@ -6,6 +6,7 @@ import {
   BookOpen,
   ChevronLeft,
   Download,
+  Eye,
   FileText,
   FileUp,
   Folder,
@@ -14,6 +15,7 @@ import {
   LoaderCircle,
   Play,
   Sparkles,
+  Send,
   Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -23,15 +25,76 @@ import { Button } from "@/components/ui/button";
 import { StudyRibbon } from "@/components/study-ribbon";
 
 const types = [
-  ["summary", "Summary"],
-  ["key_points", "Key points"],
-  ["short_notes", "Short notes"],
-  ["explanation", "Explain"],
-  ["quiz", "Questions"],
-  ["flashcards", "Flashcards"],
-  ["vocabulary", "Vocabulary"],
-  ["synonyms", "Synonyms"],
-  ["translation", "Translate"],
+  {
+    value: "summary",
+    label: "Summary",
+    description: "A faithful overview of the material",
+  },
+  {
+    value: "key_points",
+    label: "Key points",
+    description: "Essential facts at a glance",
+  },
+  {
+    value: "short_notes",
+    label: "Revision notes",
+    description: "Concise notes for quick review",
+  },
+  {
+    value: "explanation",
+    label: "Clear explanation",
+    description: "A guided, easy-to-follow lesson",
+  },
+  {
+    value: "quiz",
+    label: "Practice questions",
+    description: "Questions, answers, and explanations",
+  },
+  {
+    value: "flashcards",
+    label: "Flashcards",
+    description: "Active-recall revision cards",
+  },
+  {
+    value: "true_false",
+    label: "True or false",
+    description: "Fast comprehension checks",
+  },
+  {
+    value: "fill_blanks",
+    label: "Fill in the blanks",
+    description: "Memory and terminology practice",
+  },
+  {
+    value: "concept_map",
+    label: "Concept map",
+    description: "Ideas organized by relationship",
+  },
+  {
+    value: "study_plan",
+    label: "Study plan",
+    description: "A practical revision schedule",
+  },
+  {
+    value: "essay_outline",
+    label: "Essay outline",
+    description: "Arguments, evidence, and structure",
+  },
+  {
+    value: "vocabulary",
+    label: "Vocabulary",
+    description: "Important terms and definitions",
+  },
+  {
+    value: "synonyms",
+    label: "Synonyms",
+    description: "Alternative words in context",
+  },
+  {
+    value: "translation",
+    label: "Translation",
+    description: "English or Kinyarwanda meaning",
+  },
 ];
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -39,7 +102,7 @@ export default function StudyPage() {
   const token = useAuthStore((state) => state.accessToken)!,
     queryClient = useQueryClient(),
     fileInput = useRef<HTMLInputElement>(null);
-  const [artifactType, setArtifactType] = useState("summary"),
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(["summary"]),
     [text, setText] = useState(""),
     [documentId, setDocumentId] = useState(""),
     [language, setLanguage] = useState("en"),
@@ -49,7 +112,10 @@ export default function StudyPage() {
     [voiceId, setVoiceId] = useState(""),
     [audioUrl, setAudioUrl] = useState<string | null>(null),
     [active, setActive] = useState<StudyArtifact | null>(null),
-    [notice, setNotice] = useState("");
+    [recentResults, setRecentResults] = useState<StudyArtifact[]>([]),
+    [notice, setNotice] = useState(""),
+    [documentQuestion, setDocumentQuestion] = useState(""),
+    [documentAnswer, setDocumentAnswer] = useState("");
   const [folderId, setFolderId] = useState(""),
     [folderName, setFolderName] = useState("");
   const documents = useQuery({
@@ -68,25 +134,57 @@ export default function StudyPage() {
     queryKey: ["study-artifacts"],
     queryFn: () => api.studyArtifacts(token),
   });
+  const documentPreview = useQuery({
+    queryKey: ["document-content", documentId],
+    queryFn: () => api.documentContent(documentId, token),
+    enabled: Boolean(documentId),
+  });
   const generate = useMutation({
-    mutationFn: () =>
-      api.generateStudy(
-        {
-          artifact_type: artifactType,
-          text: text.trim() || null,
-          document_id: documentId || null,
-          language,
-          difficulty,
-          audience: "student",
-          length,
-          count,
-        },
-        token,
-      ),
-    onSuccess: (artifact) => {
-      setActive(artifact);
-      setNotice("Saved automatically to My Study Library.");
+    mutationFn: async () => {
+      const created: StudyArtifact[] = [],
+        failures: string[] = [];
+      for (const artifactType of selectedTypes) {
+        try {
+          created.push(
+            await api.generateStudy(
+              {
+                artifact_type: artifactType,
+                text: text.trim() || null,
+                document_id: documentId || null,
+                language,
+                difficulty,
+                audience: "student",
+                length,
+                count,
+              },
+              token,
+            ),
+          );
+        } catch (error) {
+          failures.push(
+            `${artifactType.replaceAll("_", " ")}: ${error instanceof Error ? error.message : "could not be created"}`,
+          );
+        }
+      }
+      return { created, failures };
+    },
+    onSuccess: ({ created, failures }) => {
+      setActive(created[0] || null);
+      setRecentResults(created);
+      setNotice(
+        created.length
+          ? `${created.length} study ${created.length === 1 ? "item" : "items"} created and saved.${failures.length ? ` ${failures.length} could not be created.` : ""}`
+          : `EVA could not create the selected items. ${failures[0] || "Please try again."}`,
+      );
       queryClient.invalidateQueries({ queryKey: ["study-artifacts"] });
+    },
+  });
+  const askDocument = useMutation({
+    mutationFn: () =>
+      api.askDocument(documentQuestion.trim(), documentId, token),
+    onSuccess: (result) => {
+      setDocumentAnswer(result.answer);
+      setDocumentQuestion("");
     },
   });
   const upload = useMutation({
@@ -112,6 +210,9 @@ export default function StudyPage() {
     onSuccess: (document) => {
       setDocumentId(document.id);
       setText("");
+      setActive(null);
+      setRecentResults([]);
+      setDocumentAnswer("");
       setNotice(
         `${document.title} is ready · ${(document.classification || "general").replaceAll("_", " ")}.`,
       );
@@ -216,7 +317,14 @@ export default function StudyPage() {
   );
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (text.trim() || documentId) generate.mutate();
+    if ((text.trim() || documentId) && selectedTypes.length) generate.mutate();
+  }
+  function toggleType(value: string) {
+    setSelectedTypes((current) =>
+      current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current, value],
+    );
   }
   return (
     <section className="study-page">
@@ -294,18 +402,30 @@ export default function StudyPage() {
           </label>
           <label>
             What should EVA create?
-            <div className="type-picker">
-              {types.map(([value, label]) => (
+            <span className="creation-hint">
+              Choose one or several. EVA will create each selected item and save
+              it to your library.
+            </span>
+            <div className="creation-picker">
+              {types.map(({ value, label, description }) => (
                 <button
                   type="button"
                   key={value}
-                  className={artifactType === value ? "selected" : ""}
-                  onClick={() => setArtifactType(value)}
+                  className={selectedTypes.includes(value) ? "selected" : ""}
+                  aria-pressed={selectedTypes.includes(value)}
+                  onClick={() => toggleType(value)}
                 >
-                  {label}
+                  <i>{selectedTypes.includes(value) ? "✓" : "+"}</i>
+                  <span>
+                    <strong>{label}</strong>
+                    <small>{description}</small>
+                  </span>
                 </button>
               ))}
             </div>
+            <span className="selection-count">
+              {selectedTypes.length} selected
+            </span>
           </label>
           <div className="control-row">
             <label>
@@ -341,7 +461,15 @@ export default function StudyPage() {
               </select>
             </label>
           </div>
-          {["quiz", "flashcards", "vocabulary"].includes(artifactType) && (
+          {selectedTypes.some((type) =>
+            [
+              "quiz",
+              "flashcards",
+              "vocabulary",
+              "true_false",
+              "fill_blanks",
+            ].includes(type),
+          ) && (
             <label>
               Number of items
               <input
@@ -356,14 +484,19 @@ export default function StudyPage() {
             </label>
           )}
           <Button
-            disabled={generate.isPending || (!text.trim() && !documentId)}
+            disabled={
+              generate.isPending ||
+              (!text.trim() && !documentId) ||
+              !selectedTypes.length
+            }
           >
             {generate.isPending ? (
               <LoaderCircle className="spin" />
             ) : (
               <Sparkles />
             )}{" "}
-            Generate study material
+            Create {selectedTypes.length || ""} study{" "}
+            {selectedTypes.length === 1 ? "item" : "items"}
           </Button>
           {notice && <p className="study-notice">{notice}</p>}
           {generate.error && (
@@ -371,7 +504,85 @@ export default function StudyPage() {
           )}
         </form>
         <main className="study-result">
-          {!active ? (
+          {recentResults.length > 1 && (
+            <nav
+              className="batch-result-tabs"
+              aria-label="Newly created study items"
+            >
+              {recentResults.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={active?.id === item.id ? "active" : ""}
+                  onClick={() => setActive(item)}
+                >
+                  {item.artifact_type.replaceAll("_", " ")}
+                </button>
+              ))}
+            </nav>
+          )}
+          {!active && documentId ? (
+            <article className="study-document-reader">
+              <header>
+                <div>
+                  <span>DOCUMENT PREVIEW</span>
+                  <h2>{documentPreview.data?.title || "Opening document…"}</h2>
+                  <p>
+                    Read the extracted content, then ask EVA a focused question.
+                  </p>
+                </div>
+                <Eye />
+              </header>
+              {documentPreview.isLoading ? (
+                <div className="reader-loading">
+                  <LoaderCircle className="spin" /> Preparing document…
+                </div>
+              ) : documentPreview.error ? (
+                <p className="form-error">{documentPreview.error.message}</p>
+              ) : (
+                <div className="document-reading-content">
+                  {documentPreview.data?.text}
+                </div>
+              )}
+              <form
+                className="document-reader-question"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (documentQuestion.trim()) askDocument.mutate();
+                }}
+              >
+                <label>
+                  Ask about this document
+                  <input
+                    value={documentQuestion}
+                    onChange={(event) =>
+                      setDocumentQuestion(event.target.value)
+                    }
+                    placeholder="What would you like EVA to explain?"
+                  />
+                </label>
+                <Button
+                  disabled={!documentQuestion.trim() || askDocument.isPending}
+                >
+                  {askDocument.isPending ? (
+                    <LoaderCircle className="spin" />
+                  ) : (
+                    <Send />
+                  )}{" "}
+                  Ask EVA
+                </Button>
+              </form>
+              {askDocument.error && (
+                <p className="form-error">{askDocument.error.message}</p>
+              )}
+              {documentAnswer && (
+                <section className="document-reader-answer">
+                  <span>EVA ANSWER</span>
+                  <p>{documentAnswer}</p>
+                </section>
+              )}
+            </article>
+          ) : !active ? (
             <div className="study-empty">
               <span>01</span>
               <BookOpen />
@@ -526,10 +737,13 @@ export default function StudyPage() {
                       if (document.status === "ready") {
                         setDocumentId(document.id);
                         setText("");
+                        setActive(null);
+                        setRecentResults([]);
+                        setDocumentAnswer("");
                       }
                     }}
                   >
-                    <FileText />
+                    <Eye />
                     <span>
                       <strong>{document.title}</strong>
                       <small>
@@ -573,7 +787,10 @@ export default function StudyPage() {
             <button
               className={`library-item ${active?.id === item.id ? "active" : ""}`}
               key={item.id}
-              onClick={() => setActive(item)}
+              onClick={() => {
+                setActive(item);
+                setRecentResults([]);
+              }}
             >
               <span>
                 <strong>{item.title}</strong>
