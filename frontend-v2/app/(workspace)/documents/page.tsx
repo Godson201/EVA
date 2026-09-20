@@ -18,7 +18,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
-import type { DocumentSource } from "@/types/api";
+import type { DocumentItem, DocumentSource } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { StudyRibbon } from "@/components/study-ribbon";
 import {
@@ -82,10 +82,23 @@ export default function DocumentsPage() {
       setAudioUrl(null);
       setNotice("Document and its uploaded file were deleted.");
       setConfirmDialog(null);
+      queryClient.setQueryData<{ items: DocumentItem[]; total: number }>(
+        ["documents"],
+        (current) =>
+          current
+            ? {
+                items: current.items.filter((item) => item.id !== id),
+                total: Math.max(0, current.total - 1),
+              }
+            : current,
+      );
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["documents", "study"] });
     },
-    onError: (error) => setNotice(error.message),
+    onError: (error) => {
+      setConfirmDialog(null);
+      setNotice(`Could not delete the document: ${error.message}`);
+    },
   });
   const ask = useMutation({
     mutationFn: () => api.askDocument(query.trim(), selectedId, token),
