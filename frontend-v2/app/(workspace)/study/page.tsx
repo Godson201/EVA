@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 import type { DocumentFolder, DocumentItem, StudyArtifact } from "@/types/api";
 import { Button } from "@/components/ui/button";
+import { StudyRibbon } from "@/components/study-ribbon";
 
 const types = [
   ["summary", "Summary"],
@@ -225,6 +226,7 @@ export default function StudyPage() {
           </span>
         </div>
       </header>
+      <StudyRibbon />
       <div className="study-workbench">
         <form className="study-controls" onSubmit={submit}>
           <label>

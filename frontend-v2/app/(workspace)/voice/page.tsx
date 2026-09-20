@@ -16,6 +16,7 @@ import {
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/button";
+import { StudyRibbon } from "@/components/study-ribbon";
 import { Input } from "@/components/ui/input";
 
 export default function VoicePage() {
@@ -74,11 +75,14 @@ export default function VoicePage() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["voice-profiles"] }),
   });
-  useEffect(() => () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    if (timer.current) clearInterval(timer.current);
-    recorder.current?.stream.getTracks().forEach((track) => track.stop());
-  }, [previewUrl]);
+  useEffect(
+    () => () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (timer.current) clearInterval(timer.current);
+      recorder.current?.stream.getTracks().forEach((track) => track.stop());
+    },
+    [previewUrl],
+  );
   function chooseSample(sample: File | null) {
     setFile(sample);
     setSavedNotice("");
@@ -98,18 +102,24 @@ export default function VoicePage() {
       chunks.current = [];
       setSeconds(0);
       setSavedNotice("");
-      mediaRecorder.ondataavailable = (event) => { if (event.data.size) chunks.current.push(event.data); };
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.current.push(event.data);
+      };
       mediaRecorder.onstop = () => {
         const type = mediaRecorder.mimeType || "audio/webm";
         const blob = new Blob(chunks.current, { type });
-        chooseSample(new File([blob], `lecturer-voice-${Date.now()}.webm`, { type }));
+        chooseSample(
+          new File([blob], `lecturer-voice-${Date.now()}.webm`, { type }),
+        );
         stream.getTracks().forEach((track) => track.stop());
       };
       mediaRecorder.start();
       setRecording(true);
       timer.current = setInterval(() => setSeconds((value) => value + 1), 1000);
     } catch {
-      setSavedNotice("Microphone permission was denied. Allow access or upload an audio file.");
+      setSavedNotice(
+        "Microphone permission was denied. Allow access or upload an audio file.",
+      );
     }
   }
   async function exportSample(id: string, name: string) {
@@ -157,6 +167,7 @@ export default function VoicePage() {
           </span>
         </div>
       </header>
+      <StudyRibbon />
       <div className="voice-grid">
         <form className="voice-enroll" onSubmit={submit}>
           <div className="section-number">01 · UNDERSTAND THE RISKS</div>
@@ -186,12 +197,27 @@ export default function VoicePage() {
             />
           </label>
           <div className="voice-record-tools">
-            <Button type="button" variant={recording ? "primary" : "outline"} onClick={toggleRecording}>
-              {recording ? <Square /> : <Mic2 />} {recording ? `Stop recording · ${seconds}s` : "Record with microphone"}
+            <Button
+              type="button"
+              variant={recording ? "primary" : "outline"}
+              onClick={toggleRecording}
+            >
+              {recording ? <Square /> : <Mic2 />}{" "}
+              {recording
+                ? `Stop recording · ${seconds}s`
+                : "Record with microphone"}
             </Button>
             {previewUrl && <audio controls src={previewUrl} />}
           </div>
-          {file && <p className={`sample-duration-hint ${seconds > 0 && seconds < 5 ? "warning" : ""}`}>{seconds > 0 ? `${seconds} second sample` : "Audio selected"} · EVA will auto-cut anything over 50 seconds, then verify clarity, silence, and clipping.</p>}
+          {file && (
+            <p
+              className={`sample-duration-hint ${seconds > 0 && seconds < 5 ? "warning" : ""}`}
+            >
+              {seconds > 0 ? `${seconds} second sample` : "Audio selected"} ·
+              EVA will auto-cut anything over 50 seconds, then verify clarity,
+              silence, and clipping.
+            </p>
+          )}
           <div className="voice-fields">
             <label>
               Profile name
@@ -259,7 +285,11 @@ export default function VoicePage() {
               {create.error.message}
             </p>
           )}
-          {savedNotice && <p className="voice-success" role="status">{savedNotice}</p>}
+          {savedNotice && (
+            <p className="voice-success" role="status">
+              {savedNotice}
+            </p>
+          )}
         </form>
         <aside className="voice-library">
           <div className="section-number">YOUR PROFILES</div>

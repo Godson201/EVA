@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -8,6 +8,7 @@ import {
   FileText,
   FileUp,
   LoaderCircle,
+  Play,
   Search,
   Send,
   Sparkles,
@@ -18,6 +19,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 import type { DocumentSource } from "@/types/api";
 import { Button } from "@/components/ui/button";
+import { StudyRibbon } from "@/components/study-ribbon";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -32,6 +34,8 @@ export default function DocumentsPage() {
     [sources, setSources] = useState<DocumentSource[]>([]),
     [showSources, setShowSources] = useState(false),
     [notice, setNotice] = useState(""),
+    [audioUrl, setAudioUrl] = useState<string | null>(null),
+    [readingLanguage, setReadingLanguage] = useState<"en" | "rw">("en"),
     [typing, setTyping] = useState(false);
   const typingRun = useRef(0);
   const documents = useQuery({
@@ -85,6 +89,39 @@ export default function DocumentsPage() {
       setShowSources(false);
     },
   });
+  const readDocument = useMutation({
+    mutationFn: async () => {
+      const content = await api.documentContent(selectedId!, token);
+      const queued = await api.synthesize(
+        content.text.slice(0, 20000),
+        readingLanguage,
+        token,
+      );
+      for (let i = 0; i < 120; i++) {
+        await delay(1000);
+        const job = await api.speechJob(queued.job_id, token);
+        if (job.status === "failed")
+          throw new Error(job.error_message || "Document reading failed");
+        if (job.status === "completed" && job.result.attachment_id) {
+          return URL.createObjectURL(
+            await api.speechAudio(job.result.attachment_id, token),
+          );
+        }
+      }
+      throw new Error("Document reading is taking longer than expected");
+    },
+    onMutate: () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      setAudioUrl(null);
+    },
+    onSuccess: setAudioUrl,
+  });
+  useEffect(
+    () => () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    },
+    [audioUrl],
+  );
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!query.trim()) return;
@@ -106,7 +143,8 @@ export default function DocumentsPage() {
       setTyping(false);
     }
   }
-  const busy = ask.isPending || search.isPending || summarize.isPending || typing;
+  const busy =
+    ask.isPending || search.isPending || summarize.isPending || typing;
   return (
     <section className="documents-page">
       <header className="documents-head">
@@ -131,6 +169,7 @@ export default function DocumentsPage() {
           </span>
         </div>
       </header>
+      <StudyRibbon />
       <div className="documents-workspace">
         <aside className="document-library">
           <div className="document-library-head">
@@ -222,17 +261,63 @@ export default function DocumentsPage() {
                       : ""}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() => summarize.mutate()}
-                  disabled={busy}
-                >
-                  <Sparkles /> Summarize
-                </Button>
+                <div className="document-header-actions">
+                  <select
+                    value={readingLanguage}
+                    onChange={(event) =>
+                      setReadingLanguage(event.target.value as "en" | "rw")
+                    }
+                    aria-label="Document reading language"
+                  >
+                    <option value="en">English voice</option>
+                    <option value="rw">Kinyarwanda voice</option>
+                  </select>
+                  <Button
+                    variant="outline"
+                    onClick={() => readDocument.mutate()}
+                    disabled={
+                      busy ||
+                      readDocument.isPending ||
+                      selected.status !== "ready"
+                    }
+                  >
+                    {readDocument.isPending ? (
+                      <LoaderCircle className="spin" />
+                    ) : (
+                      <Play />
+                    )}{" "}
+                    Read aloud
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => summarize.mutate()}
+                    disabled={busy}
+                  >
+                    <Sparkles /> Summarize
+                  </Button>
+                </div>
               </header>
-              {(ask.error || search.error || summarize.error) && (
+              {audioUrl && (
+                <audio
+                  className="document-audio"
+                  controls
+                  autoPlay
+                  src={audioUrl}
+                />
+              )}
+              {(ask.error ||
+                search.error ||
+                summarize.error ||
+                readDocument.error) && (
                 <p className="form-error">
-                  {(ask.error || search.error || summarize.error)?.message}
+                  {
+                    (
+                      ask.error ||
+                      search.error ||
+                      summarize.error ||
+                      readDocument.error
+                    )?.message
+                  }
                 </p>
               )}
               {busy && (
@@ -241,7 +326,9 @@ export default function DocumentsPage() {
                 </div>
               )}
               {answer && (
-                <article className={`document-answer ${typing ? "typing" : ""}`}>
+                <article
+                  className={`document-answer ${typing ? "typing" : ""}`}
+                >
                   <span>EVA ANSWER</span>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {answer}
@@ -269,10 +356,33 @@ export default function DocumentsPage() {
               )}
               {sources.length > 0 && answer && (
                 <div className="source-toggle">
-                  <Button variant="outline" onClick={() => setShowSources(value => !value)}>
-                    {showSources ? "Hide sources used" : `Show sources used (${sources.length})`}
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowSources((value) => !value)}
+                  >
+                    {showSources
+                      ? "Hide sources used"
+                      : `Show sources used (${sources.length})`}
                   </Button>
-                  {showSources && <section className="source-results"><h3>Sources used</h3>{sources.map((source,index)=><article key={source.chunk_id}><header><strong>[Source {index+1}]</strong><span>{Math.round(source.score*100)}% match{source.page_number?` · page ${source.page_number}`:""}</span></header><p>{source.content}</p></article>)}</section>}
+                  {showSources && (
+                    <section className="source-results">
+                      <h3>Sources used</h3>
+                      {sources.map((source, index) => (
+                        <article key={source.chunk_id}>
+                          <header>
+                            <strong>[Source {index + 1}]</strong>
+                            <span>
+                              {Math.round(source.score * 100)}% match
+                              {source.page_number
+                                ? ` · page ${source.page_number}`
+                                : ""}
+                            </span>
+                          </header>
+                          <p>{source.content}</p>
+                        </article>
+                      ))}
+                    </section>
+                  )}
                 </div>
               )}
               {!answer && !sources.length && !busy && (
@@ -285,14 +395,45 @@ export default function DocumentsPage() {
                   </p>
                 </div>
               )}
-              <form className="document-query document-query-bottom" onSubmit={submit}>
+              <form
+                className="document-query document-query-bottom"
+                onSubmit={submit}
+              >
                 <div className="query-modes">
-                  <button type="button" className={mode === "ask" ? "active" : ""} onClick={() => setMode("ask")}><BookOpen /> Ask EVA</button>
-                  <button type="button" className={mode === "search" ? "active" : ""} onClick={() => setMode("search")}><Search /> Semantic search</button>
+                  <button
+                    type="button"
+                    className={mode === "ask" ? "active" : ""}
+                    onClick={() => setMode("ask")}
+                  >
+                    <BookOpen /> Ask EVA
+                  </button>
+                  <button
+                    type="button"
+                    className={mode === "search" ? "active" : ""}
+                    onClick={() => setMode("search")}
+                  >
+                    <Search /> Semantic search
+                  </button>
                 </div>
                 <div>
-                  <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={mode === "ask" ? "Ask another question about this document…" : "Search for concepts or passages…"}/>
-                  <Button size="icon" disabled={!query.trim() || busy} aria-label={mode === "ask" ? "Ask question" : "Search document"}>{busy ? <LoaderCircle className="spin" /> : <Send />}</Button>
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={
+                      mode === "ask"
+                        ? "Ask another question about this document…"
+                        : "Search for concepts or passages…"
+                    }
+                  />
+                  <Button
+                    size="icon"
+                    disabled={!query.trim() || busy}
+                    aria-label={
+                      mode === "ask" ? "Ask question" : "Search document"
+                    }
+                  >
+                    {busy ? <LoaderCircle className="spin" /> : <Send />}
+                  </Button>
                 </div>
               </form>
             </>
