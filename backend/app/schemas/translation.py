@@ -18,8 +18,8 @@ class TranslationMode(StrEnum):
 
 class TranslationCreate(BaseModel):
     text: str = Field(min_length=1, max_length=100_000)
-    source_language: str | None = Field(default=None, pattern="^(en|rw)$")
-    target_language: str = Field(pattern="^(en|rw)$")
+    source_language: str | None = Field(default=None, pattern="^(en|rw|fr|sw|es|de|pt|ar|zh|hi)$")
+    target_language: str = Field(pattern="^(en|rw|fr|sw|es|de|pt|ar|zh|hi)$")
     mode: TranslationMode = TranslationMode.NATURAL
     conversation_id: uuid.UUID | None = None
 
@@ -56,6 +56,6 @@ class TranslationList(BaseModel):
 
 class LegacyTranslationRequest(BaseModel):
     text: str = Field(min_length=1, max_length=100_000)
-    source_lang: str | None = Field(default=None, pattern="^(en|rw)$")
-    target_lang: str = Field(pattern="^(en|rw)$")
+    source_lang: str | None = Field(default=None, pattern="^(en|rw|fr|sw|es|de|pt|ar|zh|hi)$")
+    target_lang: str = Field(pattern="^(en|rw|fr|sw|es|de|pt|ar|zh|hi)$")
     mode: TranslationMode = TranslationMode.NATURAL

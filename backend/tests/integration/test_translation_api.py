@@ -68,6 +68,13 @@ class TranslationApiTests(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 422)
 
+    def test_additional_supported_language_pair_is_accepted(self):
+        response = self.client.post("/api/v1/translations", json={
+            "text": "Bonjour", "source_language": "fr", "target_language": "en", "mode": "natural",
+        })
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["translation"]["source_language"], "fr")
+
     def test_legacy_adapter_preserves_response_shape(self):
         response = self.client.post("/api/translate", json={
             "text": "Hello", "source_lang": "en", "target_lang": "rw", "mode": "direct",

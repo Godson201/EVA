@@ -13,7 +13,16 @@ from app.repositories.translations import TranslationRepository
 from app.schemas.translation import TranslationMode
 from app.services.language_detection_service import LanguageDetectionService
 
-LANGUAGE_CODES = {"en": "eng_Latn", "rw": "kin_Latn"}
+LANGUAGE_CODES = {
+    "en": "eng_Latn", "rw": "kin_Latn", "fr": "fra_Latn", "sw": "swh_Latn",
+    "es": "spa_Latn", "de": "deu_Latn", "pt": "por_Latn", "ar": "arb_Arab",
+    "zh": "zho_Hans", "hi": "hin_Deva",
+}
+LANGUAGE_NAMES = {
+    "en": "English", "rw": "Kinyarwanda", "fr": "French", "sw": "Swahili",
+    "es": "Spanish", "de": "German", "pt": "Portuguese", "ar": "Arabic",
+    "zh": "Chinese (Simplified)", "hi": "Hindi",
+}
 MODE_GUIDANCE = {
     TranslationMode.NATURAL: "Use natural, idiomatic language while preserving meaning.",
     TranslationMode.SIMPLE: "Use simple vocabulary and short, clear sentences.",
@@ -74,7 +83,7 @@ class NLLBTranslationService:
         if len(text) > self.max_input_chars:
             raise AppError("translation_too_large", f"Translation input exceeds {self.max_input_chars} characters", status_code=413)
         if source not in LANGUAGE_CODES or target not in LANGUAGE_CODES or source == target:
-            raise AppError("invalid_language_pair", "Translation requires different English and Kinyarwanda languages", status_code=422)
+            raise AppError("invalid_language_pair", "Translation requires two different supported languages", status_code=422)
         try:
             return await asyncio.to_thread(self._translate_sync, text, source, target)
         except AppError:
@@ -91,9 +100,23 @@ class TranslationService:
         self.llm = llm
         self.detector = detector or LanguageDetectionService()
 
+    async def _detect_language(self, text: str) -> str:
+        if self.llm is not None:
+            codes = ", ".join(f"{code}={name}" for code, name in LANGUAGE_NAMES.items())
+            try:
+                detected = (await self.llm.complete([
+                    {"role": "system", "content": f"Detect the language of the text. Return exactly one supported code and nothing else: {codes}."},
+                    {"role": "user", "content": text[:4000]},
+                ])).strip().casefold().strip("`'\". ")
+                if detected in LANGUAGE_CODES:
+                    return detected
+            except AppError:
+                pass
+        return self.detector.detect(text)[0]
+
     async def translate(self, user_id: uuid.UUID, text: str, target: str, mode: TranslationMode, source: str | None = None, conversation_id=None):
         detected_automatically = source is None
-        source = source or self.detector.detect(text)[0]
+        source = source or await self._detect_language(text)
         if source == target:
             raise AppError("invalid_language_pair", "Detected source language matches the target language", status_code=422)
 
@@ -101,7 +124,7 @@ class TranslationService:
         provider = "nllb"
         translated = None
         if mode != TranslationMode.DIRECT and self.llm is not None:
-            language_name = "English" if target == "en" else "Kinyarwanda"
+            language_name = LANGUAGE_NAMES[target]
             messages = [
                 {"role": "system", "content": f"Translate into {language_name}. {MODE_GUIDANCE[mode]} Return only the translation."},
                 {"role": "user", "content": text},
