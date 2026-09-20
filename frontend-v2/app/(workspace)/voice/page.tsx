@@ -18,6 +18,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { StudyRibbon } from "@/components/study-ribbon";
 import { Input } from "@/components/ui/input";
+import {
+  ConfirmDialog,
+  type ConfirmDialogState,
+} from "@/components/confirm-dialog";
 
 export default function VoicePage() {
   const token = useAuthStore((s) => s.accessToken)!,
@@ -33,7 +37,10 @@ export default function VoicePage() {
     [recording, setRecording] = useState(false),
     [seconds, setSeconds] = useState(0),
     [previewUrl, setPreviewUrl] = useState(""),
-    [savedNotice, setSavedNotice] = useState("");
+    [savedNotice, setSavedNotice] = useState(""),
+    [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(
+      null,
+    );
   const consent = useQuery({
     queryKey: ["voice-consent"],
     queryFn: api.voiceConsent,
@@ -76,6 +83,7 @@ export default function VoicePage() {
       setSavedNotice(
         "Voice profile and its uploaded audio sample were permanently deleted.",
       );
+      setConfirmDialog(null);
       queryClient.invalidateQueries({ queryKey: ["voice-profiles"] });
     },
   });
@@ -139,13 +147,15 @@ export default function VoicePage() {
     event.preventDefault();
     create.mutate();
   }
-  function permanentlyDelete(id: string) {
-    if (
-      window.confirm(
-        "Permanently delete this voice profile and its uploaded encrypted audio sample? This cannot be undone.",
-      )
-    )
-      remove.mutate(id);
+  function permanentlyDelete(id: string, name: string) {
+    setConfirmDialog({
+      title: "Delete this voice profile?",
+      subject: name,
+      description:
+        "The protected voice profile and its encrypted uploaded audio sample will be permanently removed. This action cannot be undone.",
+      confirmLabel: "Delete voice and audio",
+      onConfirm: () => remove.mutate(id),
+    });
   }
   return (
     <section className="voice-page">
@@ -361,7 +371,7 @@ export default function VoicePage() {
                   className="danger-button"
                   variant="ghost"
                   size="icon"
-                  onClick={() => permanentlyDelete(profile.id)}
+                  onClick={() => permanentlyDelete(profile.id, profile.name)}
                   aria-label={`Delete ${profile.name}`}
                 >
                   <Trash2 />
@@ -371,6 +381,11 @@ export default function VoicePage() {
           ))}
         </aside>
       </div>
+      <ConfirmDialog
+        dialog={confirmDialog}
+        busy={remove.isPending}
+        onClose={() => setConfirmDialog(null)}
+      />
     </section>
   );
 }

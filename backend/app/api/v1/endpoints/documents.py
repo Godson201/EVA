@@ -98,13 +98,16 @@ async def delete_folder(folder_id: uuid.UUID, request: Request, user: CurrentUse
         descendants.update(children)
         pending.extend(children)
     documents = await repository.documents_in_folders(user.id, descendants)
+    attachments = []
     for document in documents:
         attachment = await session.get(Attachment, document.attachment_id)
         if attachment:
             await storage.delete(attachment.object_key)
+            attachments.append(attachment)
         await session.delete(document)
-        if attachment:
-            await session.delete(attachment)
+    await session.flush()
+    for attachment in attachments:
+        await session.delete(attachment)
     await session.delete(folder)
     await session.commit()
     return Response(status_code=204)
@@ -174,6 +177,7 @@ async def delete_document(document_id: uuid.UUID, request: Request, user: Curren
     if attachment:
         await build_storage_service(request.app.state.settings).delete(attachment.object_key)
     await session.delete(document)
+    await session.flush()
     if attachment:
         await session.delete(attachment)
     await session.commit()

@@ -21,6 +21,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import type { DocumentSource } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { StudyRibbon } from "@/components/study-ribbon";
+import {
+  ConfirmDialog,
+  type ConfirmDialogState,
+} from "@/components/confirm-dialog";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -37,7 +41,10 @@ export default function DocumentsPage() {
     [notice, setNotice] = useState(""),
     [audioUrl, setAudioUrl] = useState<string | null>(null),
     [readingLanguage, setReadingLanguage] = useState<"en" | "rw">("en"),
-    [typing, setTyping] = useState(false);
+    [typing, setTyping] = useState(false),
+    [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(
+      null,
+    );
   const typingRun = useRef(0);
   const documents = useQuery({
     queryKey: ["documents"],
@@ -74,6 +81,7 @@ export default function DocumentsPage() {
       if (audioUrl) URL.revokeObjectURL(audioUrl);
       setAudioUrl(null);
       setNotice("Document and its uploaded file were deleted.");
+      setConfirmDialog(null);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["documents", "study"] });
     },
@@ -258,14 +266,16 @@ export default function DocumentsPage() {
                 type="button"
                 className="document-row-delete"
                 aria-label={`Delete ${item.title}`}
-                onClick={() => {
-                  if (
-                    confirm(
-                      `Delete “${item.title}” and its uploaded file permanently?`,
-                    )
-                  )
-                    removeDocument.mutate(item.id);
-                }}
+                onClick={() =>
+                  setConfirmDialog({
+                    title: "Delete this document?",
+                    subject: item.title,
+                    description:
+                      "The uploaded file, extracted text, search index, and related processing data will be permanently removed.",
+                    confirmLabel: "Delete document",
+                    onConfirm: () => removeDocument.mutate(item.id),
+                  })
+                }
               >
                 <Trash2 />
               </button>
@@ -475,6 +485,11 @@ export default function DocumentsPage() {
           )}
         </main>
       </div>
+      <ConfirmDialog
+        dialog={confirmDialog}
+        busy={removeDocument.isPending}
+        onClose={() => setConfirmDialog(null)}
+      />
     </section>
   );
 }

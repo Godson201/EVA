@@ -23,6 +23,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import type { DocumentFolder, DocumentItem, StudyArtifact } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { StudyRibbon } from "@/components/study-ribbon";
+import {
+  ConfirmDialog,
+  type ConfirmDialogState,
+} from "@/components/confirm-dialog";
 
 const types = [
   {
@@ -115,7 +119,10 @@ export default function StudyPage() {
     [recentResults, setRecentResults] = useState<StudyArtifact[]>([]),
     [notice, setNotice] = useState(""),
     [documentQuestion, setDocumentQuestion] = useState(""),
-    [documentAnswer, setDocumentAnswer] = useState("");
+    [documentAnswer, setDocumentAnswer] = useState(""),
+    [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(
+      null,
+    );
   const [folderId, setFolderId] = useState(""),
     [folderName, setFolderName] = useState("");
   const documents = useQuery({
@@ -236,6 +243,7 @@ export default function StudyPage() {
       if (documentId === id) setDocumentId("");
       setNotice("Document and its uploaded file were deleted.");
       queryClient.invalidateQueries({ queryKey: ["documents", "study"] });
+      setConfirmDialog(null);
     },
     onError: (error) => setNotice(error.message),
   });
@@ -247,6 +255,7 @@ export default function StudyPage() {
       setNotice("Folder, subfolders, and their uploaded files were deleted.");
       queryClient.invalidateQueries({ queryKey: ["document-folders"] });
       queryClient.invalidateQueries({ queryKey: ["documents", "study"] });
+      setConfirmDialog(null);
     },
     onError: (error) => setNotice(error.message),
   });
@@ -295,6 +304,7 @@ export default function StudyPage() {
     onSuccess: (_, id) => {
       if (active?.id === id) setActive(null);
       queryClient.invalidateQueries({ queryKey: ["study-artifacts"] });
+      setConfirmDialog(null);
     },
   });
   useEffect(
@@ -325,6 +335,36 @@ export default function StudyPage() {
         ? current.filter((item) => item !== value)
         : [...current, value],
     );
+  }
+  function requestFolderDelete(id: string, name: string) {
+    setConfirmDialog({
+      title: "Delete this folder?",
+      subject: name,
+      description:
+        "This permanently removes the folder, every subfolder, and all uploaded documents stored inside it. This action cannot be undone.",
+      confirmLabel: "Delete folder",
+      onConfirm: () => deleteFolder.mutate(id),
+    });
+  }
+  function requestDocumentDelete(id: string, name: string) {
+    setConfirmDialog({
+      title: "Delete this document?",
+      subject: name,
+      description:
+        "The uploaded file, extracted content, and document search data will be permanently removed.",
+      confirmLabel: "Delete document",
+      onConfirm: () => deleteDocument.mutate(id),
+    });
+  }
+  function requestArtifactDelete(id: string, name: string) {
+    setConfirmDialog({
+      title: "Delete this study material?",
+      subject: name,
+      description:
+        "This generated learning material will be permanently removed from your Study Library.",
+      confirmLabel: "Delete study item",
+      onConfirm: () => remove.mutate(id),
+    });
   }
   return (
     <section className="study-page">
@@ -712,14 +752,7 @@ export default function StudyPage() {
                   className="folder-delete"
                   type="button"
                   aria-label={`Delete ${folder.name}`}
-                  onClick={() => {
-                    if (
-                      confirm(
-                        `Delete “${folder.name}”, all its subfolders, and every uploaded file inside? This cannot be undone.`,
-                      )
-                    )
-                      deleteFolder.mutate(folder.id);
-                  }}
+                  onClick={() => requestFolderDelete(folder.id, folder.name)}
                 >
                   <Trash2 />
                 </button>
@@ -759,10 +792,9 @@ export default function StudyPage() {
                     type="button"
                     className="document-delete"
                     aria-label={`Delete ${document.title}`}
-                    onClick={() => {
-                      if (confirm(`Delete “${document.title}” permanently?`))
-                        deleteDocument.mutate(document.id);
-                    }}
+                    onClick={() =>
+                      requestDocumentDelete(document.id, document.title)
+                    }
                   >
                     <Trash2 />
                   </button>
@@ -802,14 +834,20 @@ export default function StudyPage() {
               <Trash2
                 onClick={(event) => {
                   event.stopPropagation();
-                  if (confirm("Delete this study item?"))
-                    remove.mutate(item.id);
+                  requestArtifactDelete(item.id, item.title);
                 }}
               />
             </button>
           ))}
         </aside>
       </div>
+      <ConfirmDialog
+        dialog={confirmDialog}
+        busy={
+          deleteDocument.isPending || deleteFolder.isPending || remove.isPending
+        }
+        onClose={() => setConfirmDialog(null)}
+      />
     </section>
   );
 }
