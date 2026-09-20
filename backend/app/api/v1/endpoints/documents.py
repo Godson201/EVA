@@ -4,12 +4,13 @@ import hashlib
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import CurrentUser, get_current_user
 from app.core.errors import AppError
 from app.db.session import get_session
+from app.models import Attachment
 from app.repositories.documents import DocumentRepository
 from app.schemas.document import DocumentAnswer, DocumentContent, DocumentFolderCreate, DocumentFolderRead, DocumentList, DocumentRead, DocumentSummary, DocumentUploadResult, ProcessingJobRead, QuestionRequest, SearchHit, SearchRequest
 from app.services.document_service import DocumentService
@@ -83,6 +84,32 @@ async def list_folders(user: CurrentUser = Depends(get_current_user), session: A
     return await DocumentRepository(session).list_folders_owned(user.id)
 
 
+@router.delete("/folders/{folder_id}", status_code=204)
+async def delete_folder(folder_id: uuid.UUID, request: Request, user: CurrentUser = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    repository, storage = DocumentRepository(session), build_storage_service(request.app.state.settings)
+    folder = await repository.get_folder_owned(folder_id, user.id)
+    if folder is None:
+        raise AppError("folder_not_found", "Study folder not found", status_code=404)
+    folders = await repository.list_folders_owned(user.id)
+    descendants, pending = {folder_id}, [folder_id]
+    while pending:
+        parent = pending.pop()
+        children = [item.id for item in folders if item.parent_id == parent and item.id not in descendants]
+        descendants.update(children)
+        pending.extend(children)
+    documents = await repository.documents_in_folders(user.id, descendants)
+    for document in documents:
+        attachment = await session.get(Attachment, document.attachment_id)
+        if attachment:
+            await storage.delete(attachment.object_key)
+        await session.delete(document)
+        if attachment:
+            await session.delete(attachment)
+    await session.delete(folder)
+    await session.commit()
+    return Response(status_code=204)
+
+
 @router.get("", response_model=DocumentList)
 async def list_documents(
     offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=100),
@@ -136,6 +163,21 @@ async def get_document(document_id: uuid.UUID, user: CurrentUser = Depends(get_c
     if document is None:
         raise AppError("document_not_found", "Document not found", status_code=404)
     return document
+
+
+@router.delete("/{document_id}", status_code=204)
+async def delete_document(document_id: uuid.UUID, request: Request, user: CurrentUser = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    document = await DocumentRepository(session).get_owned(document_id, user.id)
+    if document is None:
+        raise AppError("document_not_found", "Document not found", status_code=404)
+    attachment = await session.get(Attachment, document.attachment_id)
+    if attachment:
+        await build_storage_service(request.app.state.settings).delete(attachment.object_key)
+    await session.delete(document)
+    if attachment:
+        await session.delete(attachment)
+    await session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/{document_id}/content", response_model=DocumentContent)

@@ -72,8 +72,12 @@ export default function VoicePage() {
   });
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteVoice(id, token),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["voice-profiles"] }),
+    onSuccess: () => {
+      setSavedNotice(
+        "Voice profile and its uploaded audio sample were permanently deleted.",
+      );
+      queryClient.invalidateQueries({ queryKey: ["voice-profiles"] });
+    },
   });
   useEffect(
     () => () => {
@@ -138,7 +142,7 @@ export default function VoicePage() {
   function permanentlyDelete(id: string) {
     if (
       window.confirm(
-        "Permanently delete this voice profile and encrypted recording? This cannot be undone.",
+        "Permanently delete this voice profile and its uploaded encrypted audio sample? This cannot be undone.",
       )
     )
       remove.mutate(id);

@@ -129,6 +129,26 @@ export default function StudyPage() {
     },
     onError: (error) => setNotice(error.message),
   });
+  const deleteDocument = useMutation({
+    mutationFn: (id: string) => api.deleteDocument(id, token),
+    onSuccess: (_, id) => {
+      if (documentId === id) setDocumentId("");
+      setNotice("Document and its uploaded file were deleted.");
+      queryClient.invalidateQueries({ queryKey: ["documents", "study"] });
+    },
+    onError: (error) => setNotice(error.message),
+  });
+  const deleteFolder = useMutation({
+    mutationFn: (id: string) => api.deleteDocumentFolder(id, token),
+    onSuccess: (_, id) => {
+      if (folderId === id) setFolderId("");
+      setDocumentId("");
+      setNotice("Folder, subfolders, and their uploaded files were deleted.");
+      queryClient.invalidateQueries({ queryKey: ["document-folders"] });
+      queryClient.invalidateQueries({ queryKey: ["documents", "study"] });
+    },
+    onError: (error) => setNotice(error.message),
+  });
   const speak = useMutation({
     mutationFn: async (content: string) => {
       const queued = await api.synthesize(
@@ -185,10 +205,6 @@ export default function StudyPage() {
   const readable = useMemo(
     () => (active ? artifactText(active) : ""),
     [active],
-  );
-  const folderChoices = useMemo(
-    () => folderOptions(folders.data || []),
-    [folders.data],
   );
   const currentFolder =
     (folders.data || []).find((folder) => folder.id === folderId) || null;
@@ -275,25 +291,6 @@ export default function StudyPage() {
               }}
               placeholder="Paste notes, a topic, or a word…"
             />
-          </label>
-          <label>
-            My ready documents
-            <select
-              value={documentId}
-              onChange={(event) => {
-                setDocumentId(event.target.value);
-                if (event.target.value) setText("");
-              }}
-            >
-              <option value="">Choose from your library</option>
-              {documents.data?.items
-                .filter((item) => item.status === "ready")
-                .map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {folderDocumentLabel(item, folderChoices)}
-                  </option>
-                ))}
-            </select>
           </label>
           <label>
             What should EVA create?
@@ -492,46 +489,70 @@ export default function StudyPage() {
           </div>
           <div className="folder-grid">
             {visibleFolders.map((folder) => (
-              <button
-                className="folder-tile"
-                type="button"
-                key={folder.id}
-                onClick={() => setFolderId(folder.id)}
-              >
-                <span className="folder-icon">
-                  <Folder fill="currentColor" />
-                  <i>✓</i>
-                </span>
-                <strong title={folder.name}>{folder.name}</strong>
-              </button>
+              <div className="folder-tile" key={folder.id}>
+                <button type="button" onClick={() => setFolderId(folder.id)}>
+                  <span className="folder-icon">
+                    <Folder fill="currentColor" />
+                    <i>✓</i>
+                  </span>
+                  <strong title={folder.name}>{folder.name}</strong>
+                </button>
+                <button
+                  className="folder-delete"
+                  type="button"
+                  aria-label={`Delete ${folder.name}`}
+                  onClick={() => {
+                    if (
+                      confirm(
+                        `Delete “${folder.name}”, all its subfolders, and every uploaded file inside? This cannot be undone.`,
+                      )
+                    )
+                      deleteFolder.mutate(folder.id);
+                  }}
+                >
+                  <Trash2 />
+                </button>
+              </div>
             ))}
           </div>
           {visibleDocuments.length > 0 && (
             <div className="library-documents">
               <span>DOCUMENTS</span>
               {visibleDocuments.map((document) => (
-                <button
-                  type="button"
-                  key={document.id}
-                  onClick={() => {
-                    if (document.status === "ready") {
-                      setDocumentId(document.id);
-                      setText("");
-                    }
-                  }}
-                >
-                  <FileText />
-                  <span>
-                    <strong>{document.title}</strong>
-                    <small>
-                      {(document.classification || "general").replaceAll(
-                        "_",
-                        " ",
-                      )}{" "}
-                      · {document.status}
-                    </small>
-                  </span>
-                </button>
+                <div className="library-document-row" key={document.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (document.status === "ready") {
+                        setDocumentId(document.id);
+                        setText("");
+                      }
+                    }}
+                  >
+                    <FileText />
+                    <span>
+                      <strong>{document.title}</strong>
+                      <small>
+                        {(document.classification || "general").replaceAll(
+                          "_",
+                          " ",
+                        )}{" "}
+                        · {document.status}
+                      </small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="document-delete"
+                    aria-label={`Delete ${document.title}`}
+                    onClick={() => {
+                      if (confirm(`Delete “${document.title}” permanently?`))
+                        deleteDocument.mutate(document.id);
+                    }}
+                  >
+                    <Trash2 />
+                  </button>
+                </div>
               ))}
             </div>
           )}

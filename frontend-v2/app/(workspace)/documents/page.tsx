@@ -12,6 +12,7 @@ import {
   Search,
   Send,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -61,6 +62,20 @@ export default function DocumentsPage() {
       setSelectedId(document.id);
       setNotice(`${document.title} is ready.`);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    onError: (error) => setNotice(error.message),
+  });
+  const removeDocument = useMutation({
+    mutationFn: (id: string) => api.deleteDocument(id, token),
+    onSuccess: (_, id) => {
+      if (selectedId === id) setSelectedId(null);
+      setAnswer("");
+      setSources([]);
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      setAudioUrl(null);
+      setNotice("Document and its uploaded file were deleted.");
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["documents", "study"] });
     },
     onError: (error) => setNotice(error.message),
   });
@@ -213,28 +228,48 @@ export default function DocumentsPage() {
             </div>
           )}
           {documents.data?.items.map((item) => (
-            <button
+            <div
               key={item.id}
               className={`document-row ${selectedId === item.id ? "selected" : ""}`}
-              onClick={() => {
-                typingRun.current += 1;
-                setTyping(false);
-                setSelectedId(item.id);
-                setAnswer("");
-                setSources([]);
-                setShowSources(false);
-              }}
             >
-              <FileText />
-              <span>
-                <strong>{item.title}</strong>
-                <small>
-                  {item.status}
-                  {item.word_count ? ` · ${item.word_count} words` : ""}
-                </small>
-              </span>
-              <i className={item.status} />
-            </button>
+              <button
+                type="button"
+                className="document-row-main"
+                onClick={() => {
+                  typingRun.current += 1;
+                  setTyping(false);
+                  setSelectedId(item.id);
+                  setAnswer("");
+                  setSources([]);
+                  setShowSources(false);
+                }}
+              >
+                <FileText />
+                <span>
+                  <strong>{item.title}</strong>
+                  <small>
+                    {item.status}
+                    {item.word_count ? ` · ${item.word_count} words` : ""}
+                  </small>
+                </span>
+                <i className={item.status} />
+              </button>
+              <button
+                type="button"
+                className="document-row-delete"
+                aria-label={`Delete ${item.title}`}
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Delete “${item.title}” and its uploaded file permanently?`,
+                    )
+                  )
+                    removeDocument.mutate(item.id);
+                }}
+              >
+                <Trash2 />
+              </button>
+            </div>
           ))}
         </aside>
         <main className="document-console">

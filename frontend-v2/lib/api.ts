@@ -74,6 +74,8 @@ export const api = {
   },
   documentFolders: (token: string) => request<DocumentFolder[]>("/api/v1/documents/folders", {}, token),
   createDocumentFolder: (name: string, parentId: string | null, token: string) => request<DocumentFolder>("/api/v1/documents/folders", { method: "POST", body: JSON.stringify({ name, parent_id: parentId }) }, token),
+  deleteDocumentFolder: (id: string, token: string) => request<void>(`/api/v1/documents/folders/${id}`, { method: "DELETE" }, token),
+  deleteDocument: (id: string, token: string) => request<void>(`/api/v1/documents/${id}`, { method: "DELETE" }, token),
   documentJob: (id: string, token: string) => request<ProcessingJob>(`/api/v1/documents/jobs/${id}`, {}, token),
   documentContent: (id: string, token: string) => request<DocumentContent>(`/api/v1/documents/${id}/content`, {}, token),
   searchDocument: (query: string, documentId: string | null, token: string) => request<DocumentSource[]>("/api/v1/documents/search", { method: "POST", body: JSON.stringify({ query, document_id: documentId, limit: 8 }) }, token),

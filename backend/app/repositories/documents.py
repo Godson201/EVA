@@ -39,6 +39,12 @@ class DocumentRepository:
         rows = await self.session.scalars(select(DocumentFolder).where(DocumentFolder.user_id == user_id).order_by(DocumentFolder.name))
         return list(rows)
 
+    async def documents_in_folders(self, user_id, folder_ids):
+        if not folder_ids:
+            return []
+        rows = await self.session.scalars(select(Document).where(Document.user_id == user_id, Document.folder_id.in_(folder_ids)))
+        return list(rows)
+
     async def get_owned(self, document_id: uuid.UUID, user_id: uuid.UUID):
         return await self.session.scalar(select(Document).where(Document.id == document_id, Document.user_id == user_id))
 
