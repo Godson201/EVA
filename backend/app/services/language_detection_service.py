@@ -10,6 +10,9 @@ class LanguageDetectionService:
         "abakiriya", "amakuru", "ariko", "cyangwa", "igihe", "ikibazo", "ikinyarwanda",
         "kandi", "kubera", "muraho", "ndashaka", "ntabwo", "rero", "urakoze", "uyu",
         "yacu", "yego", "ndashimira", "gusobanura", "inyandiko", "umunyeshuri",
+        "abanyarwanda", "amakuru", "arazi", "ese", "ibyo", "indirimbo", "kuki", "muri",
+        "naho", "nde", "ni", "none", "nyarwanda", "oya", "ryari", "se", "uburyo",
+        "umuhanzi", "umuririmbyi", "uramuzi", "urayizi", "uzi", "yaririmbye", "izihe",
     }
     EN_WORDS = {
         "and", "are", "because", "can", "english", "for", "from", "hello", "is", "not",

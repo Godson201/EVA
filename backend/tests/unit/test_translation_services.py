@@ -18,6 +18,11 @@ class LanguageDetectionTests(unittest.TestCase):
         self.assertEqual(language, "rw")
         self.assertGreater(confidence, 0.5)
 
+    def test_detects_short_natural_kinyarwanda_chat(self):
+        language, confidence = self.detector.detect("Ese uwo muhanzi uramuzi? Yaririmbye izihe ndirimbo?")
+        self.assertEqual(language, "rw")
+        self.assertGreater(confidence, 0.5)
+
     def test_detects_english(self):
         language, confidence = self.detector.detect("Hello, please explain this document to your student")
         self.assertEqual(language, "en")

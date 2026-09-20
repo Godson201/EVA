@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { ArrowUp, Bot, ExternalLink, FileAudio, FilePlus2, FileText, Globe2, LoaderCircle, Mic, Plus, Sparkles, Square, Volume2 } from "lucide-react";
+import { ArrowUp, Bot, Check, Copy, ExternalLink, FileAudio, FilePlus2, FileText, Globe2, LoaderCircle, Mic, Plus, Sparkles, Square, Volume2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
@@ -11,8 +11,11 @@ import { useAuthStore } from "@/stores/auth-store";
 import type { Message } from "@/types/api";
 import { Button } from "@/components/ui/button";
 
-const starters = ["Explain a difficult idea simply", "Sobanura inyandiko yanjye", "Translate a professional reply"];
+const starters = ["Sobanura ingingo ikomeye mu buryo bworoshye", "Mfasha kunoza inyandiko yanjye", "Hindura ubutumwa bube umwuga"];
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
+type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
+type SpeechRecognitionLike = { lang: string; continuous: boolean; interimResults: boolean; onresult: ((event: SpeechRecognitionEventLike) => void) | null; onerror: (() => void) | null; start: () => void; stop: () => void };
 
 export function ChatWorkspace({ initialId = null }: { initialId?: string | null }) {
   const token = useAuthStore((state) => state.accessToken)!; const user = useAuthStore((state) => state.user)!;
@@ -20,6 +23,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   const queryClient = useQueryClient(); const [conversationId, setConversationId] = useState<string | null>(initialId); const [draft, setDraft] = useState(""); const end = useRef<HTMLDivElement>(null);
   const documentInput = useRef<HTMLInputElement>(null); const audioInput = useRef<HTMLInputElement>(null);
   const recorder = useRef<MediaRecorder | null>(null); const recordingChunks = useRef<Blob[]>([]);
+  const speechRecognition = useRef<SpeechRecognitionLike | null>(null); const recordingBaseDraft = useRef(""); const recordingTranscript = useRef(""); const recordedAudioPending = useRef(false);
   const activeSendId = useRef<string | null>(null);
   const [attachmentMenu, setAttachmentMenu] = useState(false); const [recording, setRecording] = useState(false); const [uploadStatus, setUploadStatus] = useState("");
   const [audioLanguage, setAudioLanguage] = useState<"rw" | "en">("rw");
@@ -72,8 +76,14 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
       }
       throw new Error("Audio transcription is taking longer than expected.");
     },
-    onSuccess: (transcription) => { const text = transcription.corrected_text || transcription.raw_text || ""; setDraft((current) => current ? `${current}\n${text}` : text); setUploadStatus("Audio transcribed. Review the text, then send it."); },
-    onError: (reason) => setUploadStatus(reason instanceof Error ? reason.message : "Audio upload failed"),
+    onSuccess: (transcription) => {
+      const text = transcription.corrected_text || transcription.raw_text || "";
+      if (recordedAudioPending.current) {
+        const base = recordingBaseDraft.current.trim(); setDraft(base ? `${base}\n${text}` : text); recordedAudioPending.current = false;
+      } else setDraft((current) => current ? `${current}\n${text}` : text);
+      setUploadStatus("EVA rewrote your speech as text. Review it, then press Send.");
+    },
+    onError: (reason) => { recordedAudioPending.current = false; setUploadStatus(reason instanceof Error ? reason.message : "Audio upload failed"); },
   });
   const messages = useMemo(() => detail.data?.messages || [], [detail.data?.messages]);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, pendingUser, streamedAnswer]);
@@ -89,19 +99,45 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
   }
   function newChat() { setConversationId(null); setDraft(""); setPendingDocument(null); router.push("/chat"); }
   async function toggleRecording() {
-    if (recording && recorder.current) { recorder.current.stop(); setRecording(false); return; }
+    if (recording && recorder.current) {
+      speechRecognition.current?.stop(); recorder.current.stop(); setRecording(false);
+      setUploadStatus("Improving your transcript..."); return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream); recorder.current = mediaRecorder; recordingChunks.current = [];
+      recordingBaseDraft.current = draft; recordingTranscript.current = "";
+      const browser = window as typeof window & { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike };
+      const Recognition = browser.SpeechRecognition || browser.webkitSpeechRecognition;
+      if (Recognition) {
+        const recognition = new Recognition(); speechRecognition.current = recognition;
+        recognition.lang = audioLanguage === "rw" ? "rw-RW" : "en-US"; recognition.continuous = true; recognition.interimResults = true;
+        recognition.onresult = (event) => {
+          let finalText = recordingTranscript.current; let interimText = "";
+          for (let index = event.resultIndex; index < event.results.length; index++) {
+            const result = event.results[index];
+            if (result.isFinal) finalText += `${result[0].transcript.trim()} `; else interimText += result[0].transcript;
+          }
+          recordingTranscript.current = finalText;
+          const spoken = `${finalText}${interimText}`.trim(); const base = recordingBaseDraft.current.trim();
+          setDraft(base && spoken ? `${base}\n${spoken}` : base || spoken);
+        };
+        recognition.onerror = () => setUploadStatus("Live preview paused. EVA will transcribe the saved recording when you stop.");
+        recognition.start();
+      }
       mediaRecorder.ondataavailable = (event) => { if (event.data.size) recordingChunks.current.push(event.data); };
-      mediaRecorder.onstop = () => { const blob = new Blob(recordingChunks.current, { type: mediaRecorder.mimeType || "audio/webm" }); stream.getTracks().forEach((track) => track.stop()); transcribeAudio.mutate(new File([blob], `eva-recording-${Date.now()}.webm`, { type: blob.type })); };
-      mediaRecorder.start(); setRecording(true); setUploadStatus("Recording… select Stop when you finish.");
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordingChunks.current, { type: mediaRecorder.mimeType || "audio/webm" }); stream.getTracks().forEach((track) => track.stop());
+        recordedAudioPending.current = true; transcribeAudio.mutate(new File([blob], `eva-recording-${Date.now()}.webm`, { type: blob.type }));
+      };
+      mediaRecorder.start(500); setRecording(true);
+      setUploadStatus(Recognition ? "Listening live... your words will appear here. Select Stop when finished." : "Recording... select Stop to transcribe your speech.");
     } catch { setUploadStatus("Microphone access was denied. Allow microphone permission and try again."); }
   }
   return <section className="chat-shell">
     <header className="topbar"><div><span className="mobile-brand">EVA</span><p>{conversationId ? detail.data?.title || "Conversation" : "New conversation"}</p></div><Button variant="outline" size="sm" onClick={newChat}><Plus size={15}/> New</Button></header>
     <div className="message-scroll">
-      {!conversationId && <div className="welcome"><div className="welcome-symbol"><Bot size={34}/></div><span className="kicker">YOUR BILINGUAL THOUGHT PARTNER</span><h1>Muraho, {user.full_name?.split(" ")[0] || user.username}.</h1><p>What would you like to understand, create, or translate today?</p><div className="starter-grid">{starters.map((item, index) => <button key={item} onClick={() => setDraft(item)}><span>0{index + 1}</span>{item}<ArrowUp size={15}/></button>)}</div></div>}
+      {!conversationId && <div className="welcome"><div className="welcome-symbol"><Bot size={34}/></div><span className="kicker">UMUFASHA WAWE MU KINYARWANDA NO MU CYONGEREZA</span><h1>Muraho, {user.full_name?.split(" ")[0] || user.username}.</h1><p>Ni iki wifuza kumenya, gukora cyangwa guhindura uyu munsi?</p><div className="starter-grid">{starters.map((item, index) => <button key={item} onClick={() => setDraft(item)}><span>0{index + 1}</span>{item}<ArrowUp size={15}/></button>)}</div></div>}
       {messages.map((message) => <MessageBubble key={message.id} message={message}/>)}
       {pendingUser && <article className="message user pending-message"><div className="message-body"><span>YOU</span><p>{pendingUser}</p></div></article>}
       {send.isPending && <article className="message assistant streaming-message"><div className="message-icon"><Sparkles size={16}/></div><div className="message-body"><span>EVA</span>{streamedAnswer ? <MarkdownContent content={streamedAnswer}/> : <div className="thinking"><i/><i/><i/></div>}</div></article>}
@@ -126,6 +162,7 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
 function MessageBubble({ message }: { message: Message }) {
   const assistant = message.role === "assistant";
   const [speaking, setSpeaking] = useState(false);
+  const [copied, setCopied] = useState(false);
   const sources = message.metadata?.live_sources || [];
   function listen() {
     if (!("speechSynthesis" in window)) return;
@@ -138,13 +175,17 @@ function MessageBubble({ message }: { message: Message }) {
     utterance.onerror = () => setSpeaking(false);
     setSpeaking(true); window.speechSynthesis.speak(utterance);
   }
+  async function copyResult() {
+    await navigator.clipboard.writeText(message.content); setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
   return <article className={`message ${assistant ? "assistant" : "user"}`}>
     {assistant && <div className="message-icon"><Sparkles size={16}/></div>}
     <div className="message-body">
       <span>{assistant ? "EVA" : "YOU"}</span>
       {assistant ? <MarkdownContent content={message.content}/> : <p>{message.content}</p>}
       {assistant && sources.length > 0 && <details className="live-sources"><summary>Live sources used ({sources.length})</summary><div>{sources.map(source => <a key={source.url} href={source.url} target="_blank" rel="noreferrer"><span><strong>[{source.id}] {source.title}</strong><small>{source.domain}{source.published_at ? ` · ${new Date(source.published_at).toLocaleString()}` : ""}{source.country ? ` · ${source.country}` : ""}</small></span><ExternalLink size={14}/></a>)}</div></details>}
-      {assistant && <button type="button" className={`listen ${speaking ? "speaking" : ""}`} onClick={listen} aria-label={speaking ? "Stop reading response" : "Read response aloud"}><Volume2 size={14}/> {speaking ? "Stop" : "Listen"}</button>}
+      {assistant && <div className="message-actions"><button type="button" className={`listen ${speaking ? "speaking" : ""}`} onClick={listen} aria-label={speaking ? "Stop reading response" : "Read response aloud"}><Volume2 size={14}/> {speaking ? "Stop" : "Listen"}</button><button type="button" className="copy-result" onClick={copyResult} aria-label="Copy EVA response">{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? "Copied" : "Copy"}</button></div>}
     </div>
   </article>;
 }
