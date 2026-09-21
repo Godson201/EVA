@@ -57,6 +57,10 @@ class DocumentFolderRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DocumentMove(BaseModel):
+    folder_id: uuid.UUID | None = None
+
+
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     document_id: uuid.UUID | None = None

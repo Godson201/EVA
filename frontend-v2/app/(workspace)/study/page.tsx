@@ -1,6 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DragEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -124,7 +131,9 @@ export default function StudyPage() {
       null,
     );
   const [folderId, setFolderId] = useState(""),
-    [folderName, setFolderName] = useState("");
+    [folderName, setFolderName] = useState(""),
+    [draggedDocumentId, setDraggedDocumentId] = useState(""),
+    [dropTarget, setDropTarget] = useState<string | null>(null);
   const documents = useQuery({
     queryKey: ["documents", "study"],
     queryFn: () => api.documents(token),
@@ -259,6 +268,41 @@ export default function StudyPage() {
     },
     onError: (error) => setNotice(error.message),
   });
+  const moveDocument = useMutation({
+    mutationFn: ({
+      documentId,
+      destination,
+    }: {
+      documentId: string;
+      destination: string | null;
+    }) => api.moveDocument(documentId, destination, token),
+    onSuccess: (moved) => {
+      queryClient.setQueryData<{ items: DocumentItem[]; total: number }>(
+        ["documents", "study"],
+        (current) =>
+          current
+            ? {
+                ...current,
+                items: current.items.map((item) =>
+                  item.id === moved.id ? moved : item,
+                ),
+              }
+            : current,
+      );
+      const destination =
+        (folders.data || []).find((folder) => folder.id === moved.folder_id)
+          ?.name || "My Library";
+      setNotice(`${moved.title} moved to ${destination}.`);
+      setDraggedDocumentId("");
+      setDropTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    onError: (error) => {
+      setNotice(`Could not move the document: ${error.message}`);
+      setDraggedDocumentId("");
+      setDropTarget(null);
+    },
+  });
   const speak = useMutation({
     mutationFn: async (content: string) => {
       const queued = await api.synthesize(
@@ -365,6 +409,20 @@ export default function StudyPage() {
       confirmLabel: "Delete study item",
       onConfirm: () => remove.mutate(id),
     });
+  }
+  function startDocumentDrag(event: DragEvent<HTMLDivElement>, id: string) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/eva-document-id", id);
+    setDraggedDocumentId(id);
+    setNotice(
+      "Drop the document onto a folder, or onto My Library to remove it from a folder.",
+    );
+  }
+  function dropDocument(event: DragEvent, destination: string | null) {
+    event.preventDefault();
+    const id =
+      event.dataTransfer.getData("text/eva-document-id") || draggedDocumentId;
+    if (id) moveDocument.mutate({ documentId: id, destination });
   }
   return (
     <section className="study-page">
@@ -698,7 +756,18 @@ export default function StudyPage() {
                 <ChevronLeft />
               </button>
             )}
-            <button type="button" onClick={() => setFolderId("")}>
+            <button
+              type="button"
+              className={dropTarget === "root" ? "drop-active" : ""}
+              onClick={() => setFolderId("")}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDropTarget("root");
+              }}
+              onDragLeave={() => setDropTarget(null)}
+              onDrop={(event) => dropDocument(event, null)}
+            >
               My Library
             </button>
             {currentFolder && (
@@ -740,7 +809,17 @@ export default function StudyPage() {
           </div>
           <div className="folder-grid">
             {visibleFolders.map((folder) => (
-              <div className="folder-tile" key={folder.id}>
+              <div
+                className={`folder-tile ${dropTarget === folder.id ? "drop-active" : ""}`}
+                key={folder.id}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDropTarget(folder.id);
+                }}
+                onDragLeave={() => setDropTarget(null)}
+                onDrop={(event) => dropDocument(event, folder.id)}
+              >
                 <button type="button" onClick={() => setFolderId(folder.id)}>
                   <span className="folder-icon">
                     <Folder fill="currentColor" />
@@ -763,7 +842,16 @@ export default function StudyPage() {
             <div className="library-documents">
               <span>DOCUMENTS</span>
               {visibleDocuments.map((document) => (
-                <div className="library-document-row" key={document.id}>
+                <div
+                  className={`library-document-row ${draggedDocumentId === document.id ? "dragging" : ""}`}
+                  key={document.id}
+                  draggable={!moveDocument.isPending}
+                  onDragStart={(event) => startDocumentDrag(event, document.id)}
+                  onDragEnd={() => {
+                    setDraggedDocumentId("");
+                    setDropTarget(null);
+                  }}
+                >
                   <button
                     type="button"
                     onClick={() => {
@@ -800,6 +888,45 @@ export default function StudyPage() {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+          {draggedDocumentId && (
+            <div className="folder-drop-shelf">
+              <span>MOVE TO</span>
+              <button
+                type="button"
+                className={dropTarget === "root" ? "drop-active" : ""}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDropTarget("root");
+                }}
+                onDrop={(event) => dropDocument(event, null)}
+              >
+                My Library (no folder)
+              </button>
+              {(folders.data || [])
+                .filter(
+                  (folder) =>
+                    folder.id !==
+                    documents.data?.items.find(
+                      (item) => item.id === draggedDocumentId,
+                    )?.folder_id,
+                )
+                .map((folder) => (
+                  <button
+                    type="button"
+                    key={folder.id}
+                    className={dropTarget === folder.id ? "drop-active" : ""}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setDropTarget(folder.id);
+                    }}
+                    onDrop={(event) => dropDocument(event, folder.id)}
+                  >
+                    <Folder />
+                    {folder.name}
+                  </button>
+                ))}
             </div>
           )}
           {!folders.isLoading &&

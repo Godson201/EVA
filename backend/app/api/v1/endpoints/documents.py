@@ -12,7 +12,7 @@ from app.core.errors import AppError
 from app.db.session import get_session
 from app.models import Attachment
 from app.repositories.documents import DocumentRepository
-from app.schemas.document import DocumentAnswer, DocumentContent, DocumentFolderCreate, DocumentFolderRead, DocumentList, DocumentRead, DocumentSummary, DocumentUploadResult, ProcessingJobRead, QuestionRequest, SearchHit, SearchRequest
+from app.schemas.document import DocumentAnswer, DocumentContent, DocumentFolderCreate, DocumentFolderRead, DocumentList, DocumentMove, DocumentRead, DocumentSummary, DocumentUploadResult, ProcessingJobRead, QuestionRequest, SearchHit, SearchRequest
 from app.services.document_service import DocumentService
 from app.services.embedding_service import HuggingFaceEmbeddingService
 from app.services.job_service import CeleryJobService, create_celery_app
@@ -165,6 +165,20 @@ async def get_document(document_id: uuid.UUID, user: CurrentUser = Depends(get_c
     document = await DocumentRepository(session).get_owned(document_id, user.id)
     if document is None:
         raise AppError("document_not_found", "Document not found", status_code=404)
+    return document
+
+
+@router.patch("/{document_id}/folder", response_model=DocumentRead)
+async def move_document(document_id: uuid.UUID, payload: DocumentMove, user: CurrentUser = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    repository = DocumentRepository(session)
+    document = await repository.get_owned(document_id, user.id)
+    if document is None:
+        raise AppError("document_not_found", "Document not found", status_code=404)
+    if payload.folder_id and await repository.get_folder_owned(payload.folder_id, user.id) is None:
+        raise AppError("folder_not_found", "Destination folder not found", status_code=404)
+    document.folder_id = payload.folder_id
+    await session.commit()
+    await session.refresh(document)
     return document
 
 

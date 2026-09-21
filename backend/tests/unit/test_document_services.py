@@ -1,11 +1,13 @@
 import tempfile
 import unittest
+import uuid
 from unittest.mock import patch
 from pathlib import Path
 
 from app.core.errors import AppError
 from app.services.document_service import DocumentService
 from app.services.storage_service import LocalStorageService
+from app.schemas.document import DocumentMove
 
 
 class DocumentServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -42,6 +44,11 @@ class DocumentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     def test_classification_falls_back_to_general(self):
         self.assertEqual(self.service.classify("thoughts.txt", "A few personal ideas"), "general")
+
+    def test_document_move_accepts_folder_or_library_root(self):
+        folder_id = uuid.uuid4()
+        self.assertEqual(DocumentMove(folder_id=folder_id).folder_id, folder_id)
+        self.assertIsNone(DocumentMove(folder_id=None).folder_id)
 
     def test_reports_missing_tesseract_clearly(self):
         import pytesseract
