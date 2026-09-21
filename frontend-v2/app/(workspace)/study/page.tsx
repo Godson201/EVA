@@ -18,6 +18,7 @@ import {
   FileUp,
   Folder,
   FolderPlus,
+  GripVertical,
   Library,
   LoaderCircle,
   Play,
@@ -133,6 +134,7 @@ export default function StudyPage() {
   const [folderId, setFolderId] = useState(""),
     [folderName, setFolderName] = useState(""),
     [draggedDocumentId, setDraggedDocumentId] = useState(""),
+    [movingDocumentId, setMovingDocumentId] = useState(""),
     [dropTarget, setDropTarget] = useState<string | null>(null);
   const documents = useQuery({
     queryKey: ["documents", "study"],
@@ -294,12 +296,14 @@ export default function StudyPage() {
           ?.name || "My Library";
       setNotice(`${moved.title} moved to ${destination}.`);
       setDraggedDocumentId("");
+      setMovingDocumentId("");
       setDropTarget(null);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
     onError: (error) => {
       setNotice(`Could not move the document: ${error.message}`);
       setDraggedDocumentId("");
+      setMovingDocumentId("");
       setDropTarget(null);
     },
   });
@@ -369,6 +373,7 @@ export default function StudyPage() {
   const visibleDocuments = (documents.data?.items || []).filter(
     (document) => (document.folder_id || null) === (folderId || null),
   );
+  const activeMoveDocumentId = draggedDocumentId || movingDocumentId;
   function submit(event: FormEvent) {
     event.preventDefault();
     if ((text.trim() || documentId) && selectedTypes.length) generate.mutate();
@@ -410,10 +415,12 @@ export default function StudyPage() {
       onConfirm: () => remove.mutate(id),
     });
   }
-  function startDocumentDrag(event: DragEvent<HTMLDivElement>, id: string) {
+  function startDocumentDrag(event: DragEvent<HTMLSpanElement>, id: string) {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/eva-document-id", id);
+    event.dataTransfer.setData("text/plain", id);
     setDraggedDocumentId(id);
+    setMovingDocumentId("");
     setNotice(
       "Drop the document onto a folder, or onto My Library to remove it from a folder.",
     );
@@ -421,7 +428,9 @@ export default function StudyPage() {
   function dropDocument(event: DragEvent, destination: string | null) {
     event.preventDefault();
     const id =
-      event.dataTransfer.getData("text/eva-document-id") || draggedDocumentId;
+      event.dataTransfer.getData("text/eva-document-id") ||
+      event.dataTransfer.getData("text/plain") ||
+      activeMoveDocumentId;
     if (id) moveDocument.mutate({ documentId: id, destination });
   }
   return (
@@ -845,15 +854,40 @@ export default function StudyPage() {
                 <div
                   className={`library-document-row ${draggedDocumentId === document.id ? "dragging" : ""}`}
                   key={document.id}
-                  draggable={!moveDocument.isPending}
-                  onDragStart={(event) => startDocumentDrag(event, document.id)}
-                  onDragEnd={() => {
-                    setDraggedDocumentId("");
-                    setDropTarget(null);
-                  }}
                 >
+                  <span
+                    className="document-move-handle"
+                    draggable={!moveDocument.isPending}
+                    role="button"
+                    tabIndex={0}
+                    title="Drag or click to move"
+                    aria-label={`Move ${document.title}`}
+                    onClick={() => {
+                      setMovingDocumentId(document.id);
+                      setNotice("Choose where you want to move this document.");
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setMovingDocumentId(document.id);
+                        setNotice(
+                          "Choose where you want to move this document.",
+                        );
+                      }
+                    }}
+                    onDragStart={(event) =>
+                      startDocumentDrag(event, document.id)
+                    }
+                    onDragEnd={() => {
+                      setDraggedDocumentId("");
+                      setDropTarget(null);
+                    }}
+                  >
+                    <GripVertical />
+                  </span>
                   <button
                     type="button"
+                    className="library-document-open"
                     onClick={() => {
                       if (document.status === "ready") {
                         setDocumentId(document.id);
@@ -890,12 +924,35 @@ export default function StudyPage() {
               ))}
             </div>
           )}
-          {draggedDocumentId && (
+          {activeMoveDocumentId && (
             <div className="folder-drop-shelf">
-              <span>MOVE TO</span>
+              <div className="folder-drop-shelf-head">
+                <span>MOVE DOCUMENT TO</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraggedDocumentId("");
+                    setMovingDocumentId("");
+                    setDropTarget(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
               <button
                 type="button"
                 className={dropTarget === "root" ? "drop-active" : ""}
+                disabled={
+                  !documents.data?.items.find(
+                    (item) => item.id === activeMoveDocumentId,
+                  )?.folder_id
+                }
+                onClick={() =>
+                  moveDocument.mutate({
+                    documentId: activeMoveDocumentId,
+                    destination: null,
+                  })
+                }
                 onDragOver={(event) => {
                   event.preventDefault();
                   setDropTarget("root");
@@ -909,7 +966,7 @@ export default function StudyPage() {
                   (folder) =>
                     folder.id !==
                     documents.data?.items.find(
-                      (item) => item.id === draggedDocumentId,
+                      (item) => item.id === activeMoveDocumentId,
                     )?.folder_id,
                 )
                 .map((folder) => (
@@ -917,6 +974,12 @@ export default function StudyPage() {
                     type="button"
                     key={folder.id}
                     className={dropTarget === folder.id ? "drop-active" : ""}
+                    onClick={() =>
+                      moveDocument.mutate({
+                        documentId: activeMoveDocumentId,
+                        destination: folder.id,
+                      })
+                    }
                     onDragOver={(event) => {
                       event.preventDefault();
                       setDropTarget(folder.id);
