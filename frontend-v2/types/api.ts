@@ -28,3 +28,6 @@ export type VoiceProfile = { id: string; name: string; language: string | null; 
 export type CallTicket = { ticket: string; expires_in: number; websocket_path: string };
 export type CallEvent = { type: string; session_id?: string; text?: string; language?: string; cue?: string; summary?: string; action_items?: string[]; message?: string; code?: string; sequence?: number; buffered_bytes?: number; bytes?: number };
 export type CallSession = { id: string; status: string; source_language: string | null; target_language: string | null; transcript: Record<string, unknown>[]; summary: string | null; action_items: string[]; sentiment_cues: Record<string, unknown>[] };
+export type ConversationRoomGrant = { code: string; ticket: string; websocket_path: string; invite_path: string; host_language: string; guest_language: string | null };
+export type ConversationRoomInfo = { code: string; host_language: string; guest_language: string | null; host_connected: boolean; guest_connected: boolean };
+export type ConversationMessage = { type: "conversation_message"; id: string; sender: "host" | "guest"; original_text: string; translated_text: string; source_language: string; target_language: string; timestamp: string };

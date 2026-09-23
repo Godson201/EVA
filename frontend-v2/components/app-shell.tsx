@@ -24,7 +24,7 @@ const navigation = [
   ["/history", "Chat history", Clock3],
   ["/translate", "Translate", Languages],
   ["/study", "Study", BookOpen],
-  ["/calls", "Call assistant", PhoneCall],
+  ["/calls", "Conversation", PhoneCall],
   ["/settings", "Settings", Settings],
 ] as const;
 

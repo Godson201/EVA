@@ -11,13 +11,31 @@ from app.api.dependencies import CurrentUser, get_current_user
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.models import CallSession, User
-from app.schemas.calls import AudioChunk, CallConfig, CallSessionRead, CallTicket, TextTurn
-from app.services.call_service import BoundedAudioBuffer, CallAssistantService, CallConnectionRegistry, CallTicketService
+from app.schemas.calls import (
+    AudioChunk,
+    CallConfig,
+    CallSessionRead,
+    CallTicket,
+    ConversationRoomCreate,
+    ConversationRoomGrant,
+    ConversationRoomInfo,
+    ConversationRoomJoin,
+    TextTurn,
+)
+from app.services.call_service import (
+    BoundedAudioBuffer,
+    CallAssistantService,
+    CallConnectionRegistry,
+    CallTicketService,
+    ConversationRoomRegistry,
+    ConversationRoomTicketService,
+)
 from app.services.llm_service import build_llm_service
 from app.services.translation_service import NLLBTranslationService
 
 router = APIRouter()
 registry = CallConnectionRegistry()
+room_registry = ConversationRoomRegistry()
 
 
 @router.post("/tickets", response_model=CallTicket)
@@ -37,6 +55,135 @@ async def get_call_session(session_id: uuid.UUID, user: CurrentUser = Depends(ge
     item = await session.scalar(select(CallSession).where(CallSession.id == session_id, CallSession.user_id == user.id))
     if item is None: raise AppError("call_session_not_found", "Call session not found", status_code=404)
     return item
+
+
+def room_info(room: dict) -> ConversationRoomInfo:
+    return ConversationRoomInfo(
+        code=room["code"],
+        host_language=room["host_language"],
+        guest_language=room["guest_language"],
+        host_connected="host" in room["connections"],
+        guest_connected="guest" in room["connections"],
+    )
+
+
+@router.post("/rooms", response_model=ConversationRoomGrant)
+async def create_conversation_room(
+    payload: ConversationRoomCreate,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+):
+    room = room_registry.create(user.id, payload.language)
+    ticket = ConversationRoomTicketService.issue(
+        room["code"], "host", payload.language, request.app.state.settings, user.id
+    )
+    return ConversationRoomGrant(
+        code=room["code"],
+        ticket=ticket,
+        invite_path=f"/conversation/{room['code']}",
+        host_language=payload.language,
+    )
+
+
+@router.get("/rooms/{code}", response_model=ConversationRoomInfo)
+async def get_conversation_room(code: str):
+    room = room_registry.get(code)
+    if room is None:
+        raise AppError("conversation_room_not_found", "This conversation link is invalid or has expired", status_code=404)
+    return room_info(room)
+
+
+@router.post("/rooms/{code}/join", response_model=ConversationRoomGrant)
+async def join_conversation_room(code: str, payload: ConversationRoomJoin, request: Request):
+    room = room_registry.get(code)
+    if room is None:
+        raise AppError("conversation_room_not_found", "This conversation link is invalid or has expired", status_code=404)
+    room_registry.set_guest_language(code, payload.language)
+    ticket = ConversationRoomTicketService.issue(code, "guest", payload.language, request.app.state.settings)
+    return ConversationRoomGrant(
+        code=code,
+        ticket=ticket,
+        invite_path=f"/conversation/{code}",
+        host_language=room["host_language"],
+        guest_language=payload.language,
+    )
+
+
+@router.websocket("/rooms/ws")
+async def conversation_room_websocket(websocket: WebSocket, ticket: str):
+    settings = websocket.app.state.settings
+    try:
+        grant = ConversationRoomTicketService.decode(ticket, settings)
+        code, participant = grant["room"], grant["participant"]
+        room = room_registry.get(code)
+        if room is None or participant not in {"host", "guest"}:
+            raise AppError("conversation_room_not_found", "Conversation room is unavailable", status_code=404)
+        if participant == "host" and grant.get("sub") != str(room["user_id"]):
+            raise AppError("invalid_room_ticket", "Host access is invalid", status_code=401)
+    except Exception:
+        await websocket.close(code=4401, reason="Invalid or expired conversation link")
+        return
+    await websocket.accept()
+    room_registry.connect(code, participant, websocket)
+    translator = NLLBTranslationService(settings)
+    await websocket.send_json({
+        "type": "room_ready",
+        "code": code,
+        "participant": participant,
+        "host_language": room["host_language"],
+        "guest_language": room["guest_language"],
+        "messages": room["messages"],
+    })
+    await room_registry.broadcast(code, {
+        "type": "presence",
+        "host_connected": "host" in room["connections"],
+        "guest_connected": "guest" in room["connections"],
+        "host_language": room["host_language"],
+        "guest_language": room["guest_language"],
+    })
+    try:
+        while True:
+            message = await websocket.receive_json()
+            event_type = message.get("type")
+            if event_type == "heartbeat":
+                await websocket.send_json({"type": "heartbeat", "at": datetime.now(UTC).isoformat()})
+                continue
+            if event_type != "text_turn":
+                raise AppError("unknown_call_event", "Unsupported conversation event", status_code=422)
+            text = str(message.get("text", "")).strip()
+            if not text or len(text) > 5000:
+                raise AppError("invalid_conversation_message", "Message must contain 1 to 5,000 characters", status_code=422)
+            source = room["host_language"] if participant == "host" else room["guest_language"]
+            target = room["guest_language"] if participant == "host" else room["host_language"]
+            if not source or not target:
+                raise AppError("participant_not_ready", "Wait for both people to choose their languages", status_code=409)
+            translated = text if source == target else await translator.translate(text, source, target)
+            event = {
+                "type": "conversation_message",
+                "id": str(uuid.uuid4()),
+                "sender": participant,
+                "original_text": text,
+                "translated_text": translated,
+                "source_language": source,
+                "target_language": target,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+            room["messages"].append(event)
+            room["messages"] = room["messages"][-200:]
+            await room_registry.broadcast(code, event)
+    except WebSocketDisconnect:
+        pass
+    except AppError as exc:
+        await websocket.send_json({"type": "error", "code": exc.code, "message": exc.message})
+    finally:
+        room_registry.disconnect(code, participant)
+        await room_registry.broadcast(code, {
+            "type": "presence",
+            "host_connected": "host" in room["connections"],
+            "guest_connected": "guest" in room["connections"],
+            "host_language": room["host_language"],
+            "guest_language": room["guest_language"],
+        })
 
 
 @router.websocket("/ws")

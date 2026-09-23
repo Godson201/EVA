@@ -7,7 +7,7 @@ import pytest
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.schemas.calls import AudioChunk, TextTurn
-from app.services.call_service import BoundedAudioBuffer, CallAssistantService, CallConnectionRegistry, CallTicketService
+from app.services.call_service import BoundedAudioBuffer, CallAssistantService, CallConnectionRegistry, CallTicketService, ConversationRoomRegistry, ConversationRoomTicketService
 
 
 def test_call_ticket_is_one_time_and_user_scoped():
@@ -17,6 +17,24 @@ def test_call_ticket_is_one_time_and_user_scoped():
     assert CallTicketService.consume(ticket, settings) == user_id
     with pytest.raises(AppError) as reused: CallTicketService.consume(ticket, settings)
     assert reused.value.code == "call_ticket_reused"
+
+
+def test_conversation_room_invite_and_participant_tickets():
+    settings = Settings(environment="test", secret_key="room-test-secret", _env_file=None)
+    registry = ConversationRoomRegistry()
+    user_id = uuid.uuid4()
+    room = registry.create(user_id, "rw")
+    registry.set_guest_language(room["code"], "en")
+    host = ConversationRoomTicketService.decode(
+        ConversationRoomTicketService.issue(room["code"], "host", "rw", settings, user_id), settings
+    )
+    guest = ConversationRoomTicketService.decode(
+        ConversationRoomTicketService.issue(room["code"], "guest", "en", settings), settings
+    )
+    assert host["room"] == guest["room"] == room["code"]
+    assert host["participant"] == "host"
+    assert guest["participant"] == "guest"
+    assert registry.get(room["code"])["guest_language"] == "en"
 
 
 def test_audio_buffer_applies_backpressure_and_drains_in_order():

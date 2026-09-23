@@ -1,27 +1,113 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Activity, ArrowUp, Headphones, Languages, LoaderCircle, Phone, PhoneOff, Radio, Sparkles } from "lucide-react";
-import { API_URL, api } from "@/lib/api";
+import { useState } from "react";
+import { Languages, Link2, LoaderCircle, MessagesSquare } from "lucide-react";
+import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
-import type { CallEvent } from "@/types/api";
+import type { ConversationRoomGrant } from "@/types/api";
 import { Button } from "@/components/ui/button";
+import { ConversationMedium } from "@/components/conversation-medium";
 
-export default function CallsPage(){
-  const token=useAuthStore(s=>s.accessToken)!,socket=useRef<WebSocket|null>(null),sequence=useRef(0);
-  const [status,setStatus]=useState<"idle"|"connecting"|"live"|"ended">("idle"),[source,setSource]=useState("auto"),[target,setTarget]=useState("en"),[draft,setDraft]=useState(""),[events,setEvents]=useState<CallEvent[]>([]),[error,setError]=useState("");
-  const history=useQuery({queryKey:["call-sessions"],queryFn:()=>api.callSessions(token)});
-  useEffect(()=>()=>socket.current?.close(),[]);
-  async function start(){setStatus("connecting");setError("");setEvents([]);try{const grant=await api.callTicket(source,target,token),base=new URL(API_URL),url=`${base.protocol==="https:"?"wss":"ws"}://${base.host}${grant.websocket_path}?ticket=${encodeURIComponent(grant.ticket)}`;const ws=new WebSocket(url);socket.current=ws;ws.onmessage=(message)=>{const event=JSON.parse(message.data) as CallEvent;setEvents(current=>[...current,event]);if(event.type==="session_ready")setStatus("live");if(event.type==="call_summary"){setStatus("ended");history.refetch()}};ws.onerror=()=>setError("The real-time connection could not be established.");ws.onclose=()=>setStatus(current=>current==="live"?"ended":current)}catch(reason){setStatus("idle");setError(reason instanceof Error?reason.message:"Unable to start call")}}
-  function sendTurn(event?:FormEvent){event?.preventDefault();if(!draft.trim()||socket.current?.readyState!==WebSocket.OPEN)return;socket.current.send(JSON.stringify({type:"text_turn",speaker:"customer",text:draft.trim()}));setDraft("")}
-  function simulateAudio(){if(socket.current?.readyState!==WebSocket.OPEN)return;const phrase="Muraho, mfite ikibazo kandi ndashaka ubufasha";socket.current.send(JSON.stringify({type:"audio_chunk",sequence:sequence.current++,audio:btoa("simulated-pcm-audio")}));socket.current.send(JSON.stringify({type:"end_audio"}));socket.current.send(JSON.stringify({type:"text_turn",speaker:"customer",text:phrase}))}
-  function end(){socket.current?.send(JSON.stringify({type:"end_call"}))}
-  const visible=events.filter(event=>["final_transcript","translation","reply_suggestion","sentiment_cue","call_summary","error","audio_buffered"].includes(event.type));
-  return <section className="calls-page"><header className="calls-head"><div><span className="kicker">REAL-TIME FOUNDATION</span><h1>Be present in the call.<br/><em>EVA follows the meaning.</em></h1></div><div className={`live-orb ${status}`}><Radio/><span>{status}</span></div></header>
-    <div className="calls-grid"><div className="call-console"><div className="call-toolbar"><label>Heard language<select disabled={status==="live"} value={source} onChange={e=>setSource(e.target.value)}><option value="auto">Detect automatically</option><option value="en">English</option><option value="rw">Kinyarwanda</option></select></label><Languages/><label>Assist in<select disabled={status==="live"} value={target} onChange={e=>setTarget(e.target.value)}><option value="en">English</option><option value="rw">Kinyarwanda</option></select></label></div>{status==="idle"?<div className="call-welcome"><div><Headphones/></div><h2>Start a simulated assistance session</h2><p>This internal client verifies EVA’s secure WebSocket protocol before telephony integration. It sends no microphone audio.</p><Button onClick={start}><Phone/> Start session</Button></div>:<div className="call-live"><div className="call-state"><Activity/><div><strong>{status==="connecting"?"Connecting securely…":status==="live"?"Assistance is live":"Session complete"}</strong><small>Bounded audio · private session · no recording retained</small></div>{status==="live"&&<Button size="sm" className="end-call" onClick={end}><PhoneOff/> End</Button>}</div><div className="event-stream">{!visible.length&&<div className="waiting"><LoaderCircle className={status==="connecting"?"spin":""}/><p>Waiting for the first customer turn…</p></div>}{visible.map((event,index)=><EventCard key={`${event.type}-${index}`} event={event}/>)}</div>{status==="live"&&<><form className="call-input" onSubmit={sendTurn}><input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Type a simulated customer turn…"/><Button size="icon" aria-label="Send simulated turn"><ArrowUp/></Button></form><button className="simulate-audio" onClick={simulateAudio}><Radio/> Send simulated Kinyarwanda audio turn</button></>}</div>}{error&&<p className="form-error">{error}</p>}</div>
-      <aside className="call-side"><div className="section-number">PROTOCOL EVENTS</div><h2>One shared intelligence layer</h2><p>Text simulation exercises the same language detection, translation, reply guidance, sentiment cues, and wrap-up services intended for streamed speech.</p><ul><li><span/>Final transcript</li><li><span/>Live translation</li><li><span/>Professional reply</li><li><span/>Sentiment cue</li><li><span/>Summary & actions</li></ul><div className="session-count"><strong>{history.data?.length||0}</strong><span>saved sessions<br/>owned by you</span></div></aside></div>
-  </section>
+export default function CallsPage() {
+  const token = useAuthStore((state) => state.accessToken)!;
+  const [language, setLanguage] = useState("rw");
+  const [room, setRoom] = useState<ConversationRoomGrant | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function createRoom() {
+    setLoading(true);
+    setError("");
+    try {
+      setRoom(await api.createConversationRoom(language, token));
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not create the conversation.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inviteUrl = room
+    ? `${window.location.origin}${room.invite_path}`
+    : undefined;
+
+  return (
+    <section className="calls-page conversation-page">
+      <header className="calls-head">
+        <div>
+          <span className="kicker">EVA CONVERSATION MEDIUM</span>
+          <h1>
+            Speak your language.
+            <br />
+            <em>Understand each other.</em>
+          </h1>
+          <p className="conversation-intro">
+            Create a private conversation for two people. EVA turns speech into
+            text and translates each message as it travels.
+          </p>
+        </div>
+        <div className="conversation-mark">
+          <MessagesSquare />
+          <span>
+            2 people
+            <br />2 languages
+          </span>
+        </div>
+      </header>
+      {!room ? (
+        <div className="conversation-setup">
+          <main>
+            <span className="section-number">USER A · CREATE</span>
+            <h2>What language will you speak?</h2>
+            <p>
+              EVA uses this language to recognize your voice and translate your
+              messages for User B.
+            </p>
+            <label>
+              Your spoken language
+              <select
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+              >
+                <option value="rw">Kinyarwanda</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <Button onClick={createRoom} disabled={loading}>
+              {loading ? <LoaderCircle className="spin" /> : <Link2 />} Create
+              private conversation
+            </Button>
+            {error && <p className="form-error">{error}</p>}
+          </main>
+          <aside>
+            <div>
+              <strong>01</strong>
+              <p>Create a private room in your language.</p>
+            </div>
+            <div>
+              <strong>02</strong>
+              <p>Share the secure link with User B.</p>
+            </div>
+            <div>
+              <strong>03</strong>
+              <p>Speak, stop, and EVA sends translated text.</p>
+            </div>
+            <Languages />
+          </aside>
+        </div>
+      ) : (
+        <ConversationMedium
+          ticket={room.ticket}
+          role="host"
+          myLanguage={room.host_language}
+          otherLanguage={room.guest_language}
+          inviteUrl={inviteUrl}
+        />
+      )}
+    </section>
+  );
 }
-
-function EventCard({event}:{event:CallEvent}){const labels:Record<string,string>={final_transcript:"CUSTOMER",translation:"TRANSLATION",reply_suggestion:"SUGGESTED REPLY",sentiment_cue:"SENTIMENT",call_summary:"WRAP-UP",error:"SYSTEM",audio_buffered:"AUDIO BUFFER"};return <article className={`event-card ${event.type}`}><span>{labels[event.type]||event.type}</span>{event.type==="reply_suggestion"&&<Sparkles/>}<p>{event.text||event.summary||event.message||event.cue}</p>{event.action_items?.length?<ul>{event.action_items.map(item=><li key={item}>{item}</li>)}</ul>:null}</article>}

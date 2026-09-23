@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import re
+import secrets
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -42,6 +43,90 @@ class CallTicketService:
     def configuration(ticket: str, settings) -> tuple[str, str]:
         payload = jwt.decode(ticket, settings.secret_key, algorithms=["HS256"], audience="eva-call")
         return payload.get("source", "auto"), payload.get("target", "en")
+
+
+class ConversationRoomRegistry:
+    def __init__(self):
+        self.rooms: dict[str, dict] = {}
+
+    def create(self, user_id: uuid.UUID, language: str) -> dict:
+        code = secrets.token_urlsafe(7).replace("_", "").replace("-", "")[:9]
+        while code in self.rooms:
+            code = secrets.token_urlsafe(7).replace("_", "").replace("-", "")[:9]
+        room = {
+            "code": code,
+            "user_id": user_id,
+            "host_language": language,
+            "guest_language": None,
+            "connections": {},
+            "messages": [],
+            "created_at": datetime.now(UTC),
+        }
+        self.rooms[code] = room
+        return room
+
+    def get(self, code: str) -> dict | None:
+        return self.rooms.get(code)
+
+    def set_guest_language(self, code: str, language: str) -> dict:
+        room = self.rooms[code]
+        room["guest_language"] = language
+        return room
+
+    def connect(self, code: str, participant: str, websocket) -> None:
+        self.rooms[code]["connections"][participant] = websocket
+
+    def disconnect(self, code: str, participant: str) -> None:
+        room = self.rooms.get(code)
+        if room:
+            room["connections"].pop(participant, None)
+
+    async def broadcast(self, code: str, event: dict) -> None:
+        room = self.rooms.get(code)
+        if not room:
+            return
+        stale = []
+        for participant, socket in list(room["connections"].items()):
+            try:
+                await socket.send_json(event)
+            except Exception:
+                stale.append(participant)
+        for participant in stale:
+            room["connections"].pop(participant, None)
+
+    async def close_all(self):
+        rooms = list(self.rooms.values())
+        self.rooms.clear()
+        for room in rooms:
+            for websocket in room["connections"].values():
+                try:
+                    await websocket.close(code=1012, reason="Server shutting down")
+                except Exception:
+                    pass
+
+
+class ConversationRoomTicketService:
+    @staticmethod
+    def issue(code: str, participant: str, language: str, settings, user_id: uuid.UUID | None = None) -> str:
+        now = datetime.now(UTC)
+        payload = {
+            "aud": "eva-conversation-room",
+            "room": code,
+            "participant": participant,
+            "language": language,
+            "iat": now,
+            "exp": now + timedelta(hours=24),
+        }
+        if user_id:
+            payload["sub"] = str(user_id)
+        return jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+    @staticmethod
+    def decode(ticket: str, settings) -> dict:
+        try:
+            return jwt.decode(ticket, settings.secret_key, algorithms=["HS256"], audience="eva-conversation-room")
+        except (JWTError, ValueError, KeyError) as exc:
+            raise AppError("invalid_room_ticket", "Conversation link is invalid or expired", status_code=401) from exc
 
 
 class BoundedAudioBuffer:

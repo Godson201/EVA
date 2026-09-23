@@ -1,4 +1,4 @@
-import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, DocumentAnswer, DocumentContent, DocumentFolder, DocumentItem, DocumentSource, DocumentSummary, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, Translation, TranslationResult, VoiceConsent, VoiceProfile } from "@/types/api";
+import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, ConversationRoomGrant, ConversationRoomInfo, DocumentAnswer, DocumentContent, DocumentFolder, DocumentItem, DocumentSource, DocumentSummary, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, Translation, TranslationResult, VoiceConsent, VoiceProfile } from "@/types/api";
 
 export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -115,4 +115,7 @@ export const api = {
   },
   callTicket: (source_language: string, target_language: string, token: string) => request<CallTicket>("/api/v1/calls/tickets", { method: "POST", body: JSON.stringify({ source_language, target_language }) }, token),
   callSessions: (token: string) => request<CallSession[]>("/api/v1/calls/sessions", {}, token),
+  createConversationRoom: (language: string, token: string) => request<ConversationRoomGrant>("/api/v1/calls/rooms", { method: "POST", body: JSON.stringify({ language }) }, token),
+  conversationRoom: (code: string) => request<ConversationRoomInfo>(`/api/v1/calls/rooms/${code}`),
+  joinConversationRoom: (code: string, language: string) => request<ConversationRoomGrant>(`/api/v1/calls/rooms/${code}/join`, { method: "POST", body: JSON.stringify({ language }) }),
 };

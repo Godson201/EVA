@@ -28,6 +28,9 @@ async def lifespan(app: FastAPI):
     call_registry = getattr(app.state, "call_registry", None)
     if call_registry is not None:
         await call_registry.close_all()
+    room_registry = getattr(app.state, "conversation_room_registry", None)
+    if room_registry is not None:
+        await room_registry.close_all()
     logger.info(
         "application_stopped",
         extra={"event_data": {"service": settings.app_name}},
