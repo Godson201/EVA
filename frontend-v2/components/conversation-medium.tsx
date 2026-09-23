@@ -40,6 +40,7 @@ type RoomEvent =
       type: "presence";
       host_connected: boolean;
       guest_connected: boolean;
+      participant_count?: number;
       host_language?: string;
       guest_language?: string | null;
     }
@@ -50,12 +51,14 @@ const names: Record<string, string> = { en: "English", rw: "Kinyarwanda" };
 export function ConversationMedium({
   ticket,
   role,
+  participantId,
   myLanguage,
   otherLanguage,
   inviteUrl,
 }: {
   ticket: string;
   role: "host" | "guest";
+  participantId: string;
   myLanguage: string;
   otherLanguage: string | null;
   inviteUrl?: string;
@@ -63,10 +66,12 @@ export function ConversationMedium({
   const socket = useRef<WebSocket | null>(null);
   const recognition = useRef<Recognition | null>(null);
   const spoken = useRef("");
+  const visibleSpeech = useRef("");
   const [status, setStatus] = useState<"connecting" | "live" | "offline">(
     "connecting",
   );
   const [otherOnline, setOtherOnline] = useState(false);
+  const [participantCount, setParticipantCount] = useState(1);
   const [partnerLanguage, setPartnerLanguage] = useState<string | null>(
     otherLanguage,
   );
@@ -99,7 +104,7 @@ export function ConversationMedium({
       if (event.type === "conversation_message")
         setMessages((current) =>
           current.some((item) => item.id === event.id)
-            ? current
+            ? current.map((item) => (item.id === event.id ? event : item))
             : [...current, event],
         );
       if (event.type === "presence") {
@@ -111,6 +116,7 @@ export function ConversationMedium({
             ? event.guest_language || null
             : event.host_language || null,
         );
+        setParticipantCount(event.participant_count || 1);
       }
       if (event.type === "error") setError(event.message);
     };
@@ -132,7 +138,13 @@ export function ConversationMedium({
   function send(text: string) {
     const clean = text.trim();
     if (!clean || socket.current?.readyState !== WebSocket.OPEN) return;
-    socket.current.send(JSON.stringify({ type: "text_turn", text: clean }));
+    socket.current.send(
+      JSON.stringify({
+        type: "text_turn",
+        text: clean,
+        id: crypto.randomUUID(),
+      }),
+    );
     setDraft("");
     setLiveText("");
   }
@@ -160,6 +172,7 @@ export function ConversationMedium({
     const engine = new SpeechRecognition();
     recognition.current = engine;
     spoken.current = "";
+    visibleSpeech.current = "";
     engine.lang = myLanguage === "rw" ? "rw-RW" : "en-US";
     engine.continuous = true;
     engine.interimResults = true;
@@ -171,10 +184,13 @@ export function ConversationMedium({
         index++
       ) {
         const result = event.results[index];
-        if (result.isFinal) spoken.current += `${result[0].transcript} `;
-        else interim += result[0].transcript;
+        if (result.isFinal) {
+          const phrase = result[0].transcript.trim();
+          if (phrase) send(phrase);
+        } else interim += result[0].transcript;
       }
-      setLiveText(`${spoken.current}${interim}`.trim());
+      visibleSpeech.current = interim.trim();
+      setLiveText(visibleSpeech.current);
     };
     engine.onerror = () => {
       setListening(false);
@@ -184,8 +200,10 @@ export function ConversationMedium({
     };
     engine.onend = () => {
       setListening(false);
-      const finalText = spoken.current.trim();
+      const finalText = (spoken.current || visibleSpeech.current).trim();
       if (finalText) send(finalText);
+      spoken.current = "";
+      visibleSpeech.current = "";
     };
     setError("");
     setListening(true);
@@ -237,7 +255,7 @@ export function ConversationMedium({
             </strong>
             <small>
               {otherOnline
-                ? "The other person is online"
+                ? `${participantCount - 1} other ${participantCount === 2 ? "person" : "people"} online`
                 : "Waiting for the other person"}
             </small>
           </p>
@@ -282,10 +300,12 @@ export function ConversationMedium({
           </div>
         )}
         {messages.map((message) => {
-          const mine = message.sender === role;
+          const mine = message.sender === participantId;
           const displayed = mine
             ? message.original_text
-            : message.translated_text;
+            : message.translations?.[myLanguage] ||
+              message.translated_text ||
+              "Translating…";
           return (
             <article
               key={message.id}
@@ -299,11 +319,15 @@ export function ConversationMedium({
                   ]
                 }
               </span>
-              <p>{displayed}</p>
+              <p
+                className={
+                  message.pending && !mine ? "translating-message" : ""
+                }
+              >
+                {displayed}
+              </p>
               {!mine && (
-                <button
-                  onClick={() => read(displayed, message.target_language)}
-                >
+                <button onClick={() => read(displayed, myLanguage)}>
                   <Volume2 /> Read aloud
                 </button>
               )}

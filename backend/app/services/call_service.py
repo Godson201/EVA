@@ -5,6 +5,7 @@ import base64
 import json
 import re
 import secrets
+import bcrypt
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -49,7 +50,7 @@ class ConversationRoomRegistry:
     def __init__(self):
         self.rooms: dict[str, dict] = {}
 
-    def create(self, user_id: uuid.UUID, language: str) -> dict:
+    def create(self, user_id: uuid.UUID, language: str, room_type: str = "one_to_one", password: str | None = None) -> dict:
         code = secrets.token_urlsafe(7).replace("_", "").replace("-", "")[:9]
         while code in self.rooms:
             code = secrets.token_urlsafe(7).replace("_", "").replace("-", "")[:9]
@@ -58,6 +59,9 @@ class ConversationRoomRegistry:
             "user_id": user_id,
             "host_language": language,
             "guest_language": None,
+            "room_type": room_type,
+            "password_hash": bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode() if password else None,
+            "participants": {"host": {"language": language, "role": "host"}},
             "connections": {},
             "messages": [],
             "created_at": datetime.now(UTC),
@@ -68,10 +72,18 @@ class ConversationRoomRegistry:
     def get(self, code: str) -> dict | None:
         return self.rooms.get(code)
 
-    def set_guest_language(self, code: str, language: str) -> dict:
+    def admit_guest(self, code: str, language: str, password: str | None = None) -> tuple[dict, str]:
         room = self.rooms[code]
+        password_hash = room["password_hash"]
+        if password_hash and (not password or not bcrypt.checkpw(password.encode(), password_hash.encode())):
+            raise AppError("incorrect_room_password", "The conversation password is incorrect", status_code=401)
+        active_guests = [key for key in room["connections"] if key != "host"]
+        if room["room_type"] == "one_to_one" and active_guests:
+            raise AppError("conversation_room_full", "This one-to-one conversation already has a guest", status_code=409)
+        participant = f"guest-{secrets.token_urlsafe(6)}"
+        room["participants"][participant] = {"language": language, "role": "guest"}
         room["guest_language"] = language
-        return room
+        return room, participant
 
     def connect(self, code: str, participant: str, websocket) -> None:
         self.rooms[code]["connections"][participant] = websocket
@@ -80,6 +92,16 @@ class ConversationRoomRegistry:
         room = self.rooms.get(code)
         if room:
             room["connections"].pop(participant, None)
+
+    def presence(self, code: str) -> dict:
+        room = self.rooms[code]
+        return {
+            "type": "presence",
+            "host_connected": "host" in room["connections"],
+            "guest_connected": any(key != "host" for key in room["connections"]),
+            "participant_count": len(room["connections"]),
+            "languages": list({room["participants"][key]["language"] for key in room["connections"]}),
+        }
 
     async def broadcast(self, code: str, event: dict) -> None:
         room = self.rooms.get(code)

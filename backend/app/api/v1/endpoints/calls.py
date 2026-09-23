@@ -63,7 +63,10 @@ def room_info(room: dict) -> ConversationRoomInfo:
         host_language=room["host_language"],
         guest_language=room["guest_language"],
         host_connected="host" in room["connections"],
-        guest_connected="guest" in room["connections"],
+        guest_connected=any(key != "host" for key in room["connections"]),
+        participant_count=len(room["connections"]),
+        room_type=room["room_type"],
+        password_required=bool(room["password_hash"]),
     )
 
 
@@ -73,7 +76,7 @@ async def create_conversation_room(
     request: Request,
     user: CurrentUser = Depends(get_current_user),
 ):
-    room = room_registry.create(user.id, payload.language)
+    room = room_registry.create(user.id, payload.language, payload.room_type, payload.password)
     ticket = ConversationRoomTicketService.issue(
         room["code"], "host", payload.language, request.app.state.settings, user.id
     )
@@ -82,6 +85,8 @@ async def create_conversation_room(
         ticket=ticket,
         invite_path=f"/conversation/{room['code']}",
         host_language=payload.language,
+        participant_id="host",
+        room_type=room["room_type"],
     )
 
 
@@ -98,14 +103,16 @@ async def join_conversation_room(code: str, payload: ConversationRoomJoin, reque
     room = room_registry.get(code)
     if room is None:
         raise AppError("conversation_room_not_found", "This conversation link is invalid or has expired", status_code=404)
-    room_registry.set_guest_language(code, payload.language)
-    ticket = ConversationRoomTicketService.issue(code, "guest", payload.language, request.app.state.settings)
+    room, participant = room_registry.admit_guest(code, payload.language, payload.password)
+    ticket = ConversationRoomTicketService.issue(code, participant, payload.language, request.app.state.settings)
     return ConversationRoomGrant(
         code=code,
         ticket=ticket,
         invite_path=f"/conversation/{code}",
         host_language=room["host_language"],
         guest_language=payload.language,
+        participant_id=participant,
+        room_type=room["room_type"],
     )
 
 
@@ -116,7 +123,7 @@ async def conversation_room_websocket(websocket: WebSocket, ticket: str):
         grant = ConversationRoomTicketService.decode(ticket, settings)
         code, participant = grant["room"], grant["participant"]
         room = room_registry.get(code)
-        if room is None or participant not in {"host", "guest"}:
+        if room is None or participant not in room["participants"]:
             raise AppError("conversation_room_not_found", "Conversation room is unavailable", status_code=404)
         if participant == "host" and grant.get("sub") != str(room["user_id"]):
             raise AppError("invalid_room_ticket", "Host access is invalid", status_code=401)
@@ -134,13 +141,7 @@ async def conversation_room_websocket(websocket: WebSocket, ticket: str):
         "guest_language": room["guest_language"],
         "messages": room["messages"],
     })
-    await room_registry.broadcast(code, {
-        "type": "presence",
-        "host_connected": "host" in room["connections"],
-        "guest_connected": "guest" in room["connections"],
-        "host_language": room["host_language"],
-        "guest_language": room["guest_language"],
-    })
+    await room_registry.broadcast(code, room_registry.presence(code))
     try:
         while True:
             message = await websocket.receive_json()
@@ -153,20 +154,41 @@ async def conversation_room_websocket(websocket: WebSocket, ticket: str):
             text = str(message.get("text", "")).strip()
             if not text or len(text) > 5000:
                 raise AppError("invalid_conversation_message", "Message must contain 1 to 5,000 characters", status_code=422)
-            source = room["host_language"] if participant == "host" else room["guest_language"]
-            target = room["guest_language"] if participant == "host" else room["host_language"]
-            if not source or not target:
+            source = room["participants"][participant]["language"]
+            target_languages = {
+                room["participants"][key]["language"] for key in room["connections"] if key != participant
+            }
+            if not target_languages:
                 raise AppError("participant_not_ready", "Wait for both people to choose their languages", status_code=409)
-            translated = text if source == target else await translator.translate(text, source, target)
-            event = {
+            message_id = str(message.get("id") or uuid.uuid4())
+            pending_event = {
                 "type": "conversation_message",
-                "id": str(uuid.uuid4()),
+                "id": message_id,
                 "sender": participant,
                 "original_text": text,
-                "translated_text": translated,
+                "translated_text": "",
+                "translations": {source: text},
                 "source_language": source,
-                "target_language": target,
+                "target_language": next(iter(target_languages)),
                 "timestamp": datetime.now(UTC).isoformat(),
+                "pending": True,
+            }
+            await room_registry.broadcast(code, pending_event)
+            translations = {source: text}
+            for target in target_languages:
+                if target not in translations:
+                    translations[target] = await translator.translate(text, source, target)
+            event = {
+                "type": "conversation_message",
+                "id": message_id,
+                "sender": participant,
+                "original_text": text,
+                "translated_text": next((translations[value] for value in target_languages), text),
+                "translations": translations,
+                "source_language": source,
+                "target_language": next(iter(target_languages)),
+                "timestamp": datetime.now(UTC).isoformat(),
+                "pending": False,
             }
             room["messages"].append(event)
             room["messages"] = room["messages"][-200:]
@@ -177,13 +199,7 @@ async def conversation_room_websocket(websocket: WebSocket, ticket: str):
         await websocket.send_json({"type": "error", "code": exc.code, "message": exc.message})
     finally:
         room_registry.disconnect(code, participant)
-        await room_registry.broadcast(code, {
-            "type": "presence",
-            "host_connected": "host" in room["connections"],
-            "guest_connected": "guest" in room["connections"],
-            "host_language": room["host_language"],
-            "guest_language": room["guest_language"],
-        })
+        await room_registry.broadcast(code, room_registry.presence(code))
 
 
 @router.websocket("/ws")

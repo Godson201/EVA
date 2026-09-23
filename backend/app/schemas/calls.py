@@ -18,10 +18,13 @@ class CallConfig(BaseModel):
 
 class ConversationRoomCreate(BaseModel):
     language: Literal["en", "rw"]
+    room_type: Literal["one_to_one", "group"] = "one_to_one"
+    password: str | None = Field(default=None, min_length=4, max_length=72)
 
 
 class ConversationRoomJoin(BaseModel):
     language: Literal["en", "rw"]
+    password: str | None = Field(default=None, max_length=72)
 
 
 class ConversationRoomGrant(BaseModel):
@@ -31,6 +34,8 @@ class ConversationRoomGrant(BaseModel):
     invite_path: str
     host_language: str
     guest_language: str | None = None
+    participant_id: str
+    room_type: Literal["one_to_one", "group"]
 
 
 class ConversationRoomInfo(BaseModel):
@@ -39,6 +44,9 @@ class ConversationRoomInfo(BaseModel):
     guest_language: str | None = None
     host_connected: bool = False
     guest_connected: bool = False
+    participant_count: int = 0
+    room_type: Literal["one_to_one", "group"]
+    password_required: bool = False
 
 
 class TextTurn(BaseModel):

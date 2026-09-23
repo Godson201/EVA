@@ -41,6 +41,8 @@ def test_two_people_exchange_a_translated_room_message_without_guest_account():
                 assert host.receive_json()["guest_connected"] is True
                 assert guest.receive_json()["guest_connected"] is True
                 host.send_json({"type": "text_turn", "text": "Hello there"})
+                assert host.receive_json()["pending"] is True
+                assert guest.receive_json()["pending"] is True
                 host_message = host.receive_json()
                 guest_message = guest.receive_json()
                 assert host_message["original_text"] == "Hello there"

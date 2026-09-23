@@ -24,17 +24,28 @@ def test_conversation_room_invite_and_participant_tickets():
     registry = ConversationRoomRegistry()
     user_id = uuid.uuid4()
     room = registry.create(user_id, "rw")
-    registry.set_guest_language(room["code"], "en")
+    room, participant = registry.admit_guest(room["code"], "en")
     host = ConversationRoomTicketService.decode(
         ConversationRoomTicketService.issue(room["code"], "host", "rw", settings, user_id), settings
     )
     guest = ConversationRoomTicketService.decode(
-        ConversationRoomTicketService.issue(room["code"], "guest", "en", settings), settings
+        ConversationRoomTicketService.issue(room["code"], participant, "en", settings), settings
     )
     assert host["room"] == guest["room"] == room["code"]
     assert host["participant"] == "host"
-    assert guest["participant"] == "guest"
+    assert guest["participant"] == participant
     assert registry.get(room["code"])["guest_language"] == "en"
+
+
+def test_password_protected_room_rejects_wrong_password_and_group_admits_many():
+    registry = ConversationRoomRegistry()
+    room = registry.create(uuid.uuid4(), "rw", "group", "secure-room")
+    with pytest.raises(AppError) as denied:
+        registry.admit_guest(room["code"], "en", "wrong")
+    assert denied.value.code == "incorrect_room_password"
+    _, first = registry.admit_guest(room["code"], "en", "secure-room")
+    _, second = registry.admit_guest(room["code"], "rw", "secure-room")
+    assert first != second
 
 
 def test_audio_buffer_applies_backpressure_and_drains_in_order():

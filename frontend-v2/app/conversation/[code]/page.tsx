@@ -13,6 +13,7 @@ export default function GuestConversationPage() {
   const [room, setRoom] = useState<ConversationRoomInfo | null>(null),
     [grant, setGrant] = useState<ConversationRoomGrant | null>(null),
     [language, setLanguage] = useState("en"),
+    [password, setPassword] = useState(""),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function GuestConversationPage() {
     setLoading(true);
     setError("");
     try {
-      setGrant(await api.joinConversationRoom(code, language));
+      setGrant(await api.joinConversationRoom(code, language, password));
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -48,6 +49,7 @@ export default function GuestConversationPage() {
         <ConversationMedium
           ticket={grant.ticket}
           role="guest"
+          participantId={grant.participant_id}
           myLanguage={grant.guest_language || language}
           otherLanguage={grant.host_language}
         />
@@ -92,9 +94,25 @@ export default function GuestConversationPage() {
                   <option value="rw">Kinyarwanda</option>
                 </select>
               </label>
+              {room.password_required && (
+                <label>
+                  Conversation password
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Enter the password from User A"
+                  />
+                </label>
+              )}
               <Button onClick={join}>
                 <Languages /> Join without an account
               </Button>
+              <div className="room-access-note">
+                {room.room_type === "group"
+                  ? "Group room · multiple people can join with this link."
+                  : "One-to-one room · one guest can participate at a time."}
+              </div>
               <small className="privacy-note">
                 Your microphone starts only when you press Speak. EVA does not
                 retain voice recordings in this conversation.
