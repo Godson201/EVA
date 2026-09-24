@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +33,8 @@ from app.services.call_service import (
 )
 from app.services.llm_service import build_llm_service
 from app.services.translation_service import NLLBTranslationService
+from app.services.audio_preprocessing_service import AudioPreprocessingService
+from app.services.transcription_service import WhisperTranscriptionService
 
 router = APIRouter()
 registry = CallConnectionRegistry()
@@ -88,6 +91,32 @@ async def create_conversation_room(
         participant_id="host",
         room_type=room["room_type"],
     )
+
+
+@router.post("/rooms/transcribe")
+async def transcribe_conversation_audio(
+    request: Request,
+    ticket: str = Form(...),
+    file: UploadFile = File(...),
+):
+    settings = request.app.state.settings
+    grant = ConversationRoomTicketService.decode(ticket, settings)
+    room = room_registry.get(grant["room"])
+    participant = grant["participant"]
+    if room is None or participant not in room["participants"]:
+        raise AppError("conversation_room_not_found", "Conversation room is unavailable", status_code=404)
+    content = await file.read(min(settings.max_audio_bytes, 10 * 1024 * 1024) + 1)
+    filename = Path(file.filename or "mobile-recording.webm").name
+    content_type = file.content_type or "application/octet-stream"
+    audio_type = AudioPreprocessingService().validate(
+        filename, content_type, content, min(settings.max_audio_bytes, 10 * 1024 * 1024)
+    )
+    language = room["participants"][participant]["language"]
+    result = await WhisperTranscriptionService(settings).transcribe(content, audio_type, language)
+    text = result.corrected_text or result.raw_text
+    if not text:
+        raise AppError("empty_transcription", "EVA could not detect speech in that recording", status_code=422)
+    return {"text": text, "language": result.language, "duration_seconds": result.duration_seconds}
 
 
 @router.get("/rooms/{code}", response_model=ConversationRoomInfo)

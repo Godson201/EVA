@@ -5,6 +5,7 @@ import {
   Check,
   Copy,
   Lightbulb,
+  LoaderCircle,
   Mic,
   Send,
   Square,
@@ -65,6 +66,10 @@ export function ConversationMedium({
 }) {
   const socket = useRef<WebSocket | null>(null);
   const recognition = useRef<Recognition | null>(null);
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const mediaStream = useRef<MediaStream | null>(null);
+  const recordedChunks = useRef<Blob[]>([]);
+  const recordingTimer = useRef<number | null>(null);
   const spoken = useRef("");
   const visibleSpeech = useRef("");
   const [status, setStatus] = useState<"connecting" | "live" | "offline">(
@@ -79,6 +84,8 @@ export function ConversationMedium({
   const [draft, setDraft] = useState("");
   const [liveText, setLiveText] = useState("");
   const [listening, setListening] = useState(false);
+  const [processingRecording, setProcessingRecording] = useState(false);
+  const [phoneRecorderMode, setPhoneRecorderMode] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [showTip, setShowTip] = useState(true);
@@ -86,6 +93,7 @@ export function ConversationMedium({
 
   useEffect(() => {
     setShowTip(localStorage.getItem("eva-conversation-tip") !== "seen");
+    setPhoneRecorderMode(/iPad|iPhone|iPod/i.test(navigator.userAgent));
     const base = new URL(API_URL);
     const url = `${base.protocol === "https:" ? "wss" : "ws"}://${base.host}/api/v1/calls/rooms/ws?ticket=${encodeURIComponent(ticket)}`;
     const ws = new WebSocket(url);
@@ -124,6 +132,9 @@ export function ConversationMedium({
     ws.onclose = () => setStatus("offline");
     return () => {
       recognition.current?.stop();
+      mediaRecorder.current?.stop();
+      mediaStream.current?.getTracks().forEach((track) => track.stop());
+      if (recordingTimer.current) window.clearTimeout(recordingTimer.current);
       ws.close();
     };
   }, [role, ticket]);
@@ -154,9 +165,109 @@ export function ConversationMedium({
     send(draft);
   }
 
-  function toggleSpeech() {
+  async function startPhoneRecording() {
+    if (
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === "undefined"
+    ) {
+      setError(
+        "This phone browser cannot record audio. You can still type a message.",
+      );
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      mediaStream.current = stream;
+      recordedChunks.current = [];
+      const preferred = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(
+        stream,
+        preferred ? { mimeType: preferred } : undefined,
+      );
+      mediaRecorder.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) recordedChunks.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        setError(
+          "The phone could not record audio. Check microphone permission.",
+        );
+        setListening(false);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        mediaStream.current = null;
+        setListening(false);
+        if (recordingTimer.current) window.clearTimeout(recordingTimer.current);
+        const mimeType = recorder.mimeType || preferred || "audio/webm";
+        const extension = mimeType.includes("mp4") ? "m4a" : "webm";
+        const blob = new Blob(recordedChunks.current, { type: mimeType });
+        if (!blob.size) return;
+        setProcessingRecording(true);
+        setLiveText("EVA is converting your voice to text…");
+        try {
+          const form = new FormData();
+          form.append("ticket", ticket);
+          form.append(
+            "file",
+            new File([blob], `phone-recording.${extension}`, {
+              type: mimeType,
+            }),
+          );
+          const response = await fetch(
+            `${API_URL}/api/v1/calls/rooms/transcribe`,
+            { method: "POST", body: form },
+          );
+          const payload = (await response.json().catch(() => ({}))) as {
+            text?: string;
+            error?: { message?: string };
+            detail?: string;
+          };
+          if (!response.ok)
+            throw new Error(
+              payload.error?.message ||
+                payload.detail ||
+                "Voice transcription failed",
+            );
+          if (payload.text) send(payload.text);
+        } catch (reason) {
+          setLiveText("");
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "EVA could not transcribe this recording.",
+          );
+        } finally {
+          setProcessingRecording(false);
+        }
+      };
+      recorder.start(500);
+      setError("");
+      setListening(true);
+      setLiveText("Recording on this phone…");
+      recordingTimer.current = window.setTimeout(() => recorder.stop(), 30000);
+    } catch {
+      setError(
+        "Microphone access was denied. Allow microphone permission in your browser settings.",
+      );
+    }
+  }
+
+  async function toggleSpeech() {
     if (listening) {
-      recognition.current?.stop();
+      if (mediaRecorder.current?.state === "recording")
+        mediaRecorder.current.stop();
+      else recognition.current?.stop();
+      return;
+    }
+    if (phoneRecorderMode) {
+      await startPhoneRecording();
       return;
     }
     const browser = window as typeof window & {
@@ -166,7 +277,7 @@ export function ConversationMedium({
     const SpeechRecognition =
       browser.SpeechRecognition || browser.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError("Live speech requires Chrome or Microsoft Edge.");
+      await startPhoneRecording();
       return;
     }
     const engine = new SpeechRecognition();
@@ -347,11 +458,23 @@ export function ConversationMedium({
           type="button"
           className={listening ? "recording" : ""}
           onClick={toggleSpeech}
-          disabled={status !== "live"}
+          disabled={status !== "live" || processingRecording}
           aria-label={listening ? "Stop and send" : "Speak"}
         >
-          {listening ? <Square /> : <Mic />}
-          <span>{listening ? "Stop & send" : "Speak"}</span>
+          {processingRecording ? (
+            <LoaderCircle className="spin" />
+          ) : listening ? (
+            <Square />
+          ) : (
+            <Mic />
+          )}
+          <span>
+            {processingRecording
+              ? "Transcribing"
+              : listening
+                ? "Stop & send"
+                : "Speak"}
+          </span>
         </button>
         <input
           value={draft}
@@ -370,6 +493,14 @@ export function ConversationMedium({
           <Send />
         </Button>
       </form>
+      <button
+        type="button"
+        className="phone-recorder-mode"
+        onClick={() => setPhoneRecorderMode((current) => !current)}
+        disabled={listening || processingRecording}
+      >
+        Microphone mode: {phoneRecorderMode ? "Phone recorder" : "Live speech"}
+      </button>
       {error && <p className="medium-error">{error}</p>}
     </div>
   );

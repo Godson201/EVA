@@ -1,10 +1,13 @@
 import uuid
+import io
+import wave
 
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_current_user
 from app.core.config import Settings
 from app.main import create_app
+from app.services.transcription_service import TranscriptionResult, WhisperTranscriptionService
 
 
 async def fake_user():
@@ -47,3 +50,28 @@ def test_two_people_exchange_a_translated_room_message_without_guest_account():
                 guest_message = guest.receive_json()
                 assert host_message["original_text"] == "Hello there"
                 assert guest_message["translated_text"] == "Hello there"
+
+
+def test_guest_phone_recording_uses_room_ticket_without_an_account(monkeypatch):
+    async def fake_transcribe(self, content, suffix, language):
+        return TranscriptionResult("Muraho", "Muraho", language, 1.0, [], "test-model")
+
+    monkeypatch.setattr(WhisperTranscriptionService, "transcribe", fake_transcribe)
+    audio = io.BytesIO()
+    with wave.open(audio, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(b"\x00\x00" * 16000)
+    app = create_app(Settings(environment="test", secret_key="mobile-test-secret", _env_file=None), include_legacy=False)
+    app.dependency_overrides[get_current_user] = fake_user
+    with TestClient(app) as client:
+        room = client.post("/api/v1/calls/rooms", json={"language": "en"}).json()
+        guest = client.post(f"/api/v1/calls/rooms/{room['code']}/join", json={"language": "rw"}).json()
+        response = client.post(
+            "/api/v1/calls/rooms/transcribe",
+            data={"ticket": guest["ticket"]},
+            files={"file": ("phone-recording.wav", audio.getvalue(), "audio/wav")},
+        )
+        assert response.status_code == 200
+        assert response.json()["text"] == "Muraho"
