@@ -1,6 +1,7 @@
 import type { ApiError, CallSession, CallTicket, ChatResponse, Conversation, ConversationDetail, ConversationList, ConversationRoomGrant, ConversationRoomInfo, DocumentAnswer, DocumentContent, DocumentFolder, DocumentItem, DocumentSource, DocumentSummary, DocumentUpload, ProcessingJob, Session, SpeechJob, StudyArtifact, StudyArtifactList, Transcription, TranscriptionUpload, Translation, TranslationResult, VoiceConsent, VoiceProfile } from "@/types/api";
 
-export const API_URL = (process.env.NEXT_PUBLIC_EVA_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const configuredApiUrl = process.env.NEXT_PUBLIC_EVA_API_URL?.trim();
+export const API_URL = (configuredApiUrl || (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:8001")).replace(/\/$/, "");
 
 export class EvaApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }

@@ -35,7 +35,12 @@ export function ChatWorkspace({ initialId = null }: { initialId?: string | null 
       let id = conversationId;
       if (!id) { const created = await api.createConversation(token, content.slice(0, 52)); id = created.id; setConversationId(id); }
       activeSendId.current = id;
-      await api.streamMessage(id, content, token, (chunk) => setStreamedAnswer((answer) => answer + chunk), liveSearch);
+      if (window.location.hostname.endsWith(".trycloudflare.com")) {
+        const response = await api.sendMessage(id, content, token);
+        setStreamedAnswer(response.assistant_message.content);
+      } else {
+        await api.streamMessage(id, content, token, (chunk) => setStreamedAnswer((answer) => answer + chunk), liveSearch);
+      }
       return { id };
     },
     onSettled: async (result) => {
