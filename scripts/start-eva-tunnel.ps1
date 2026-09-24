@@ -24,8 +24,12 @@ New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
 if (Test-Path -LiteralPath $pidFile) {
     $existingPid = Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue
     if ($existingPid -and (Get-Process -Id $existingPid -ErrorAction SilentlyContinue)) {
-        $existingUrl = Select-String -Path $logFile,$outFile,$errorFile -Pattern "https://[a-z0-9-]+\.trycloudflare\.com" -AllMatches -ErrorAction SilentlyContinue |
-            Select-Object -Last 1
+        $existingLogs = @($logFile, $outFile, $errorFile) |
+            Where-Object { Test-Path -LiteralPath $_ }
+        $existingUrl = if ($existingLogs.Count -gt 0) {
+            Select-String -Path $existingLogs -Pattern "https://[a-z0-9-]+\.trycloudflare\.com" -AllMatches |
+                Select-Object -Last 1
+        }
         if ($existingUrl) {
             Write-Host "EVA is already public at $($existingUrl.Matches.Value)"
             exit 0
